@@ -1,0 +1,12 @@
+{
+  "development": {
+    "label": "个人开发云环境（交接说明记录，云端状态待核实）",
+    "appid": "wxba87853fc5deca39",
+    "cloudEnv": "cloudbase-d9g2aibtdf3e4d6bc"
+  },
+  "production": {
+    "label": "公司正式环境（尚未提供）",
+    "appid": "",
+    "cloudEnv": ""
+  }
+}
