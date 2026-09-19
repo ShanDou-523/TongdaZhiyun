@@ -1,0 +1,10 @@
+{
+  "name": "ntu-miniprogram",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node scripts/check.js",
+    "demo:sync": "node scripts/sync-demo.js"
+  }
+}

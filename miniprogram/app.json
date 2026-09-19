@@ -1,0 +1,46 @@
+{
+  "pages": [
+    "pages/auth/index",
+    "pages/home/index",
+    "pages/inbox/index",
+    "pages/profile/index",
+    "pages/chat/index",
+    "pages/staff/index",
+    "pages/admin/index",
+    "pages/privacy/index",
+    "pages/demo/index"
+  ],
+  "window": {
+    "navigationBarTitleText": "园邻",
+    "navigationBarBackgroundColor": "#f6f7f2",
+    "navigationBarTextStyle": "black",
+    "backgroundColor": "#f6f7f2"
+  },
+  "tabBar": {
+    "color": "#7f8881",
+    "selectedColor": "#235c48",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
+    "list": [
+      {
+        "pagePath": "pages/home/index",
+        "text": "首页"
+      },
+      {
+        "pagePath": "pages/inbox/index",
+        "text": "消息"
+      },
+      {
+        "pagePath": "pages/profile/index",
+        "text": "我的"
+      }
+    ]
+  },
+  "style": "v2",
+  "sitemapLocation": "sitemap.json",
+  "__usePrivacyCheck__": true,
+  "lazyCodeLoading": "requiredComponents",
+  "usingComponents": {
+    "demo-banner": "/components/demo-banner/index"
+  }
+}

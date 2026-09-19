@@ -1,0 +1,15 @@
+<view class="page">
+  <button wx:if="{{demoAvailable}}" class="secondary" bindtap="demo">无需手机号，进入功能演示 →</button><view class="brand"><view class="brand-icon">邻</view><view><view class="brand-name">园邻</view><view class="eyebrow">YUANLIN · CAMPUS LIFE</view></view></view>
+  <view class="intro"><view class="eyebrow">把日常，交给身边的人</view><view class="title">离你很近，<view></view>让生活更轻松。</view><view class="subtitle">洗护 · 家政 · 园区生活服务</view><view class="orbit orbit-one"></view><view class="orbit orbit-two"></view><view class="leaf">✦</view></view>
+  <view class="card form"><view class="tabs"><view class="tab {{mode === 'register' ? 'active' : ''}}" data-mode="register" bindtap="mode">新用户注册</view><view class="tab {{mode === 'login' ? 'active' : ''}}" data-mode="login" bindtap="mode">已有账户登录</view></view>
+    <block wx:if="{{mode === 'register'}}"><view class="label">怎么称呼你</view><input class="field" placeholder="请输入昵称" maxlength="24" value="{{nickname}}" bindinput="nickname"/>
+    <view class="row"><view class="grow"><view class="label">所在园区</view><picker range="{{parks}}" value="{{parkIndex}}" data-key="parkIndex" bindchange="select"><view class="field">{{parks[parkIndex]}} ⌄</view></picker></view><view class="grow"><view class="label">性别</view><picker range="{{genders}}" value="{{genderIndex}}" data-key="genderIndex" bindchange="select"><view class="field">{{genders[genderIndex]}} ⌄</view></picker></view></view>
+    <view class="label">服务门店</view><picker range="{{stores}}" range-key="name" value="{{storeIndex}}" data-key="storeIndex" bindchange="select"><view class="field">{{stores.length ? stores[storeIndex].name : '暂无可用门店'}} ⌄</view></picker>
+    </block>
+    <view wx:else class="muted">请授权注册时使用的手机号，我们会为你安全登录。</view>
+    <checkbox-group bindchange="consent"><label class="check"><checkbox value="yes" checked="{{consent}}" color="#285c47"/><text>我已阅读并同意收集手机号、昵称、园区及性别，用于账户与门店服务。</text></label></checkbox-group><view class="link" bindtap="privacy">阅读隐私说明 ↗</view>
+    <view class="error" wx:if="{{error}}">{{error}}</view><view class="loading" wx:if="{{loading}}">正在连接门店…</view>
+    <button class="primary" open-type="getPhoneNumber" bindgetphonenumber="authorize" loading="{{busy}}" disabled="{{busy || loading || !consent || (mode === 'register' && (!nickname || !stores.length))}}">验证手机号并{{mode === 'register' ? '注册' : '登录'}} →</button>
+    <button class="secondary small" wx:if="{{error}}" bindtap="load">重新连接</button><view class="meta" style="margin-top:20rpx">手机号由微信安全验证，无需手动输入。</view>
+  </view><view class="footer">安心服务 · 就在园邻</view>
+</view>

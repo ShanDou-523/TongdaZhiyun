@@ -1,0 +1,15 @@
+{
+  "collections": ["users", "phoneClaims", "stores", "conversations", "messages", "notifications", "notificationReads", "services", "auditLogs"],
+  "clientAccess": "deny-all; use api cloud function",
+  "indexes": [
+    { "collection": "users", "fields": [["storeId", "asc"], ["role", "asc"], ["createdAt", "desc"]] },
+    { "collection": "users", "fields": [["createdAt", "desc"]] },
+    { "collection": "stores", "fields": [["enabled", "asc"], ["createdAt", "asc"]] },
+    { "collection": "conversations", "fields": [["customerId", "asc"], ["lastMessageAt", "desc"]] },
+    { "collection": "conversations", "fields": [["storeId", "asc"], ["lastMessageAt", "desc"]] },
+    { "collection": "messages", "fields": [["roomId", "asc"], ["seq", "desc"]] },
+    { "collection": "notifications", "fields": [["storeId", "asc"], ["createdAt", "desc"]] },
+    { "collection": "services", "fields": [["enabled", "asc"], ["createdAt", "desc"]] }
+  ],
+  "notes": "This is a deployment checklist, not an automatically imported CloudBase configuration. Each collection also needs a createdAt descending index for admin inspection if the console does not already provide it. _id is unique by default."
+}

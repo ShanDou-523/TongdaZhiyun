@@ -1,0 +1,1 @@
+const config=require('../../config');Page({data:{operator:config.privacyOperator,contact:config.privacyContact},platform(){if(wx.openPrivacyContract)wx.openPrivacyContract({fail:()=>wx.showToast({title:'请先在平台配置隐私保护指引',icon:'none'})});}});

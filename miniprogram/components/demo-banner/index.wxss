@@ -1,0 +1,1 @@
+.demo-banner{display:flex;align-items:center;justify-content:space-between;gap:16rpx;background:#fff0dc;color:#805a2a;padding:16rpx 20rpx;border-radius:12rpx;font-size:23rpx;margin-bottom:20rpx}.demo-banner button{margin:0;padding:0 18rpx;line-height:56rpx;font-size:23rpx;flex-shrink:0;background:#fff8eb;color:#805a2a}.demo-banner button::after{border:0}
