@@ -1,0 +1,8 @@
+const api=require('../../utils/api');const {parks,genders,roles}=require('../../utils/constants');
+Page({data:{user:null,parks,genders,nickname:'',parkIndex:0,genderIndex:0,roleName:'',error:'',busy:false},
+ onShow(){this.load();},async load(){try{const me=await api.guard();if(!me)return;this.setData({...me,nickname:me.user.nickname,parkIndex:parks.indexOf(me.user.park),genderIndex:genders.indexOf(me.user.gender),roleName:roles[me.user.role],error:''});}catch(e){this.setData({error:e.message});}},
+ input(e){this.setData({nickname:e.detail.value});}, select(e){this.setData({[e.currentTarget.dataset.key]:Number(e.detail.value)});},
+ async save(){if(this.data.busy)return;this.setData({busy:true,error:''});try{const r=await api.call('profile.update',{nickname:this.data.nickname,park:parks[this.data.parkIndex],gender:genders[this.data.genderIndex]});this.setData(r);wx.showToast({title:'已保存'});}catch(e){this.setData({error:e.message});}finally{this.setData({busy:false});}},
+ async logout(){const r=await wx.showModal({title:'退出登录',content:'下次登录需重新验证手机号。'});if(!r.confirm)return;try{await api.call('logout');api.clear();wx.reLaunch({url:'/pages/auth/index'});}catch(e){this.setData({error:e.message});}},
+ staff(){wx.navigateTo({url:'/pages/staff/index'});},admin(){wx.navigateTo({url:'/pages/admin/index'});},privacy(){wx.navigateTo({url:'/pages/privacy/index'});}
+});

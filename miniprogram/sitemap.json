@@ -1,0 +1,9 @@
+{
+  "desc": "用户资料与会话不被索引",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

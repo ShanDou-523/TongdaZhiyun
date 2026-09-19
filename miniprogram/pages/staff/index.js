@@ -1,0 +1,10 @@
+const api=require('../../utils/api');
+Page({data:{customers:[],notifications:[],error:'',page:0,more:false,unread:0,loading:true},
+ onShow(){this.visible=true;this.start();},onHide(){this.stop();},onUnload(){this.stop();},stop(){this.visible=false;clearTimeout(this.timer);},
+ async start(){try{const me=await api.guard(['store','admin']);if(!me)return;this.setData(me);await this.customers(false,true);await this.poll();}catch(e){this.setData({error:e.message});}finally{this.setData({loading:false});}},
+ async customers(e,reset=false){if(this.fetching)return;this.fetching=true;const page=reset?0:this.data.page+1;try{const r=await api.call('staff.customers',{page});this.setData({customers:reset?r.items:this.data.customers.concat(r.items),page,more:r.items.length===20,error:''});}catch(e){this.setData({error:e.message});}finally{this.fetching=false;}},
+ async poll(){clearTimeout(this.timer);try{const r=await api.call('staff.notifications');const unread=r.items.filter(n=>n.createdAt>r.readAt).length;const latest=r.items[0]&&r.items[0]._id;if(latest&&this.latest&&latest!==this.latest){wx.showToast({title:'有新客户注册',icon:'none'});}this.latest=latest;this.readAt=r.items.reduce((at,n)=>Math.max(at,n.createdAt),0);this.setData({notifications:r.items.map(n=>({...n,time:api.time(n.createdAt),unread:n.createdAt>r.readAt})),unread});}catch(e){this.setData({error:e.message});}finally{if(this.visible)this.timer=setTimeout(()=>this.poll(),15000);}},
+ async read(){try{await api.call('staff.readNotifications',{at:this.readAt||0});await this.poll();}catch(e){this.setData({error:e.message});}},
+ async chat(e){if(this.opening)return;this.opening=true;try{const r=await api.call('chat.open',{customerId:e.currentTarget.dataset.id});wx.navigateTo({url:'/pages/chat/index?id='+r.roomId});}catch(e){this.setData({error:e.message});}finally{this.opening=false;}},
+ refresh(){this.customers(false,true);}
+});
