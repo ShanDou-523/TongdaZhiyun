@@ -9,7 +9,7 @@ function fail(code, message) { const error = new Error(message); error.code = co
 
 function seed(now) {
   const data = {};
-  for (const name of ['users','phoneClaims','stores','conversations','messages','notifications','notificationReads','services','auditLogs','demoAccounts']) data[name] = {};
+  for (const name of ['users','phoneClaims','stores','conversations','messages','notifications','notificationReads','services','banners','auditLogs','demoAccounts']) data[name] = {};
   const put = (name, id, row) => { data[name][id] = { ...row, _id: id }; };
   put('stores', 'main', { name: '演示门店 · 园区服务中心', enabled: true, createdAt: now - 86400000 });
   const accounts = [
@@ -44,6 +44,7 @@ function seed(now) {
   }
   put('services','laundry_intro',{name:'洗护服务 · 演示介绍',description:'可咨询门店；价格、下单、取送与支付尚未实现。',category:'laundry',enabled:true,createdAt:now});
   put('services','housekeeping_intro',{name:'家政服务 · 演示介绍',description:'可咨询门店；预约时段、人员排班与支付尚未实现。',category:'housekeeping',enabled:true,createdAt:now-1});
+  put('banners','welcome',{title:'欢迎来到园邻',subtitle:'单店功能演示，服务可向门店咨询',weight:50,enabled:true,mediaType:'none',mediaFileID:'',createdAt:now});
   return data;
 }
 
@@ -67,6 +68,7 @@ function createDemo({ storage, canUse, clock = Date.now }) {
       return {
         async get(c,id) { return clone(source.data[c]?.[id] || null); },
         async put(c,id,value) { (source.data[c] ||= {})[id]=clone({...value,_id:id}); },
+        async remove(c,id) { delete (source.data[c] || {})[id]; },
         async list(c,filter,options={}) {
           let rows=Object.values(source.data[c]||{}).filter(row=>Object.entries(filter).every(([key,value])=>row[key]===value));
           if(options.before!==undefined)rows=rows.filter(row=>row[options.order]<options.before);
@@ -91,7 +93,7 @@ function createDemo({ storage, canUse, clock = Date.now }) {
     }
     repo=adapter(holder);
     service=createService({
-      repo,clock,
+      repo,clock,allowLocalMedia:true,
       phoneExchange:async code=>({purePhoneNumber:code,countryCode:'86'}),
       qrCode:async()=>{fail('DEMO_UNSUPPORTED','本地演示不能生成真实小程序码；请在云端联调阶段验证');}
     });

@@ -7,6 +7,7 @@ class MemoryRepository {
   constructor() { this.data = {}; this.queue = Promise.resolve(); }
   async get(c, id) { return structuredClone(this.data[c]?.[id] || null); }
   async put(c, id, data) { (this.data[c] ||= {})[id] = structuredClone({ ...data, _id: id }); }
+  async remove(c, id) { delete (this.data[c] || {})[id]; }
   async list(c, filter, options = {}) {
     let rows = Object.values(this.data[c] || {}).filter(x => Object.entries(filter).every(([k,v]) => x[k] === v));
     if (options.before !== undefined) rows = rows.filter(x => x[options.order] < options.before);
@@ -19,19 +20,88 @@ class MemoryRepository {
   }
 }
 async function fixture() {
-  const repo = new MemoryRepository(); let now = 1800000000000;
+  const repo = new MemoryRepository(); let now = 1800000000000; const deletedFiles = [];
   await repo.put('stores', 'main', { name: '测试门店', enabled: true, createdAt: now });
   await repo.put('stores', 'other', { name: '另一门店', enabled: true, createdAt: now });
-  const service = createService({ repo, clock: () => now, bootstrapOpenid: 'admin', phoneExchange: async code => {
+  const service = createService({ repo, clock: () => now, bootstrapOpenid: 'admin', storageDelete: async id => { deletedFiles.push(id); }, phoneExchange: async code => {
     if (code === 'reject') throw new Error('expired');
     return { purePhoneNumber: code, countryCode: '86' };
   }, qrCode: async (store, version) => `cloud://${store}/${version}` });
   const call = (openid, token, action, data = {}) => service({ token, action, data }, { openid });
   const register = (openid, phone, more = {}) => call(openid, '', 'auth.phone', { mode: 'register', consent: true, code: phone, nickname: '邻居', park: '一园区', gender: '不愿透露', storeId: 'main', ...more });
   const provision = async (openid, role, storeId = 'main') => { const u = await repo.get('users', uid(openid)); await repo.put('users', u._id, {...u,role,storeId}); };
-  return { repo, service, call, register, provision, tick(ms = 1000) { now += ms; } };
+  return { repo, service, call, register, provision, deletedFiles, tick(ms = 1000) { now += ms; } };
 }
 const fails = (promise, code) => assert.rejects(promise, e => e.code === code);
+test('admin manages the service catalog; customers cannot write and changes are audited',async()=>{
+  const f=await fixture(),admin=await f.register('admin','13800000001'),c=await f.register('c','13800000002');
+  await fails(f.call('c',c.token,'admin.services'),'FORBIDDEN');
+  await fails(f.call('c',c.token,'admin.serviceSave',{name:'衣物洗护',category:'laundry',description:'干净清爽',enabled:true}),'FORBIDDEN');
+  assert.deepEqual((await f.call('admin',admin.token,'admin.services')).items,[]);
+  await fails(f.call('admin',admin.token,'admin.serviceSave',{name:'家政服务',category:'meal',description:'x',enabled:true}),'INVALID');
+  await fails(f.call('admin',admin.token,'admin.serviceSave',{name:' ',category:'laundry',description:'x',enabled:true}),'INVALID');
+  await fails(f.call('admin',admin.token,'admin.serviceSave',{name:'家政服务',category:'laundry',description:'x',enabled:'yes'}),'INVALID');
+  await fails(f.call('admin',admin.token,'admin.serviceSave',{id:'missing',name:'家政服务',category:'laundry',description:'x',enabled:true}),'INVALID');
+  const created=await f.call('admin',admin.token,'admin.serviceSave',{name:'衣物洗护',category:'laundry',description:'干净清爽，轻装出发',enabled:true});
+  assert.equal((await f.call('admin',admin.token,'admin.services')).items.length,1);
+  assert.equal((await f.call('c',c.token,'services.list')).items.length,1);
+  await f.call('admin',admin.token,'admin.serviceSave',{id:created.id,name:'衣物洗护（改）',category:'housekeeping',description:'按件计价',enabled:false});
+  const saved=(await f.call('admin',admin.token,'admin.services')).items[0];
+  assert.equal(saved.name,'衣物洗护（改）');assert.equal(saved.category,'housekeeping');
+  assert.equal((await f.call('c',c.token,'services.list')).items.length,0);
+  await f.call('admin',admin.token,'admin.serviceDelete',{id:created.id});
+  assert.equal((await f.call('admin',admin.token,'admin.services')).items.length,0);
+  await fails(f.call('admin',admin.token,'admin.serviceDelete',{id:created.id}),'INVALID');
+  const actions=Object.values(f.repo.data.auditLogs).map(x=>x.action);
+  assert.ok(actions.includes('service.save')&&actions.includes('service.delete'));
+});
+test('banners: admin CRUD, weight ordering, only enabled reach the client home page',async()=>{
+  const f=await fixture(),admin=await f.register('admin','13800000001'),c=await f.register('c','13800000002');
+  await fails(f.call('c',c.token,'admin.bannerSave',{title:'新用户福利',subtitle:'注册即领 10 元现金红包，3 万元送完即止',weight:100,enabled:true}),'FORBIDDEN');
+  await fails(f.call('c',c.token,'admin.banners'),'FORBIDDEN');
+  await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'新用户福利',subtitle:'注册即领 10 元现金红包',weight:'9',enabled:true}),'INVALID');
+  await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'新用户福利',subtitle:'注册即领 10 元现金红包',weight:100,enabled:'yes'}),'INVALID');
+  const a=await f.call('admin',admin.token,'admin.bannerSave',{title:'新用户福利',subtitle:'注册即领 10 元现金红包，3 万元送完即止',weight:100,enabled:true});
+  const b=await f.call('admin',admin.token,'admin.bannerSave',{title:'开学季洗护特惠',subtitle:'首单衣物洗护 8 折',weight:50,enabled:true});
+  const off=await f.call('admin',admin.token,'admin.bannerSave',{title:'已停投',subtitle:'x',weight:10,enabled:false});
+  assert.deepEqual((await f.call('c',c.token,'banners.list')).items.map(x=>x._id),[a.id,b.id],'权重降序，停投被过滤');
+  await fails(f.call('admin',admin.token,'admin.bannerSave',{id:'missing',title:'x',subtitle:'y',weight:1,enabled:true}),'INVALID');
+  await f.call('admin',admin.token,'admin.bannerSave',{id:b.id,title:'开学季洗护特惠',subtitle:'首单衣物洗护 7 折',weight:50,enabled:false});
+  assert.equal((await f.call('c',c.token,'banners.list')).items.length,1,'停投后从首页消失');
+  await f.call('admin',admin.token,'admin.bannerDelete',{id:off.id});
+  await fails(f.call('admin',admin.token,'admin.bannerDelete',{id:off.id}),'INVALID');
+  assert.equal((await f.call('admin',admin.token,'admin.banners')).items.length,2);
+  const actions=Object.values(f.repo.data.auditLogs).map(x=>x.action);
+  assert.ok(actions.includes('banner.save')&&actions.includes('banner.delete'));
+});
+test('banners media: image/video fileID validated, shared assets retained on replace and delete',async()=>{
+  const f=await fixture(),admin=await f.register('admin','13800000001');
+  await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'x',subtitle:'y',weight:1,enabled:true,mediaType:'gif'}),'INVALID');
+  await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'x',subtitle:'y',weight:1,enabled:true,mediaType:'image'}),'INVALID');
+  await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'x',subtitle:'y',weight:1,enabled:true,mediaType:'image',mediaFileID:'http://evil.com/a.jpg'}),'INVALID');
+  const a=await f.call('admin',admin.token,'admin.bannerSave',{title:'海报',subtitle:'新用户注册送 10 元',weight:100,enabled:true,mediaType:'image',mediaFileID:'cloud://env/banners/a.png'});
+  const saved=(await f.call('admin',admin.token,'admin.banners')).items[0];
+  assert.equal(saved.mediaType,'image');assert.equal(saved.mediaFileID,'cloud://env/banners/a.png');
+  assert.deepEqual(f.deletedFiles,[],'首次保存不清理任何文件');
+  await f.call('admin',admin.token,'admin.bannerSave',{id:a.id,title:'海报',subtitle:'新用户注册送 10 元',weight:100,enabled:true,mediaType:'video',mediaFileID:'cloud://env/banners/b.mp4'});
+  assert.deepEqual(f.deletedFiles,[],'素材引用删除不触发物理文件删除');
+  await f.call('admin',admin.token,'admin.bannerSave',{id:a.id,title:'海报',subtitle:'新用户注册送 10 元',weight:100,enabled:true,mediaType:'none'});
+  assert.deepEqual(f.deletedFiles,[],'素材引用删除不触发物理文件删除');
+  const c=await f.call('admin',admin.token,'admin.bannerSave',{title:'视频',subtitle:'x',weight:1,enabled:true,mediaType:'video',mediaFileID:'cloud://env/banners/c.mp4'});
+  await f.call('admin',admin.token,'admin.bannerDelete',{id:c.id});
+  assert.deepEqual(f.deletedFiles,[],'素材引用删除不触发物理文件删除');
+});
+test('park 其它 requires a short free-text detail; normal parks ignore it', async () => {
+  const f = await fixture();
+  await fails(f.call('c','','auth.phone',{mode:'register',consent:true,code:'13800000001',nickname:'邻居',park:'其它',gender:'不愿透露',storeId:'main'}),'INVALID');
+  const r = await f.register('c','13800000001',{park:'其它',parkDetail:'青教公寓1号楼'});
+  assert.equal(r.user.park,'其它'); assert.equal(r.user.parkDetail,'青教公寓1号楼');
+  await fails(f.call('c',r.token,'profile.update',{nickname:'邻居',park:'其它',gender:'不愿透露'}),'INVALID');
+  const u = await f.call('c',r.token,'profile.update',{nickname:'邻居',park:'其它',parkDetail:'主校区南门',gender:'不愿透露'});
+  assert.equal(u.user.parkDetail,'主校区南门');
+  const v = await f.call('c',r.token,'profile.update',{nickname:'邻居',park:'十一园区',parkDetail:'应被清空',gender:'不愿透露'});
+  assert.ok(!v.user.parkDetail,'非其它园区清空自填字段');
+});
 test('registration uses verified phone, ignores forged role and identity; notification is atomic', async () => {
   const f = await fixture(); const r = await f.register('customer','13800000001',{role:'admin',phone:'13900000000',openid:'admin'});
   assert.equal(r.user.role,'customer'); assert.equal(r.user.phone,'13800000001'); assert.equal(r.user._id,uid('customer'));
@@ -41,7 +111,7 @@ test('registration uses verified phone, ignores forged role and identity; notifi
 test('login and every registration require consent, phone code and valid profile', async () => {
   const f=await fixture();await fails(f.register('a','13800000001',{consent:false}),'INVALID');
   await fails(f.register('a','reject'),'PHONE');await fails(f.register('a','fake'),'PHONE');
-  await fails(f.register('a','13800000001',{park:'十一园区'}),'INVALID');
+  await fails(f.register('a','13800000001',{park:'十二园区'}),'INVALID');
   await fails(f.register('a','13800000001',{nickname:' '}),'INVALID');
   await fails(f.register('a','13800000001',{gender:'未知'}),'INVALID');
   await fails(f.register('a','13800000001',{storeId:'missing'}),'INVALID');
@@ -169,4 +239,69 @@ test('legacy notification timestamps remain readable without being advanced by n
   assert.equal(items.find(n=>n._id!=='later').unread,false);
   await f.call('s',s.token,'staff.readNotifications',{ids:['later']});
   assert.equal((await f.repo.get('notificationReads',s.user._id)).readAt,1800000000000);
+});
+
+test('dev login switch: off by default; when on, skips phone exchange but keeps every other check',async()=>{
+  // 默认关闭（fixture 未传 devLogin）："dev:" 凭证不被特殊对待，走正常手机号校验并被拒绝。
+  const f=await fixture();
+  await fails(f.register('a','dev:13012345678'),'PHONE');
+  // 显式开启：跳过 phoneExchange，手机号格式、门店校验、绑定关系、角色分配全部保持不变。
+  const repo=new MemoryRepository();let now=1800000000000;
+  await repo.put('stores','main',{name:'测试门店',enabled:true,createdAt:now});
+  let exchanged=0;
+  const service=createService({repo,clock:()=>now,devLogin:true,bootstrapOpenid:'boss',
+    phoneExchange:async()=>{exchanged++;throw new Error('must not be called');},qrCode:async()=>''});
+  const call=(openid,token,action,data={})=>service({token,action,data},{openid});
+  const reg=(openid,code,more={})=>call(openid,'','auth.phone',{mode:'register',consent:true,code,nickname:'邻居',park:'一园区',gender:'不愿透露',storeId:'main',...more});
+  const a=await reg('a','dev:13012345678');
+  assert.equal(a.user.phone,'13012345678');assert.equal(a.user.role,'customer');assert.equal(exchanged,0);
+  const boss=await reg('boss','dev:13000000000');
+  assert.equal(boss.user.role,'admin');
+  await fails(reg('b','dev:123'),'PHONE');
+  await fails(reg('b','dev:13012345678'),'PHONE_BOUND');
+  await fails(reg('b','dev:13099998888',{storeId:'missing'}),'INVALID');
+  const again=await call('a','','auth.phone',{mode:'login',consent:true,code:'dev:13012345678'});
+  assert.equal(again.user.phone,'13012345678');assert.equal(exchanged,0);
+  // 开关开启也不影响普通凭证：非 "dev:" 前缀的 code 仍走 phoneExchange（此处抛错被转为 PHONE）。
+  await fails(call('c','','auth.phone',{mode:'login',consent:true,code:'13012345678'}),'PHONE');
+  assert.equal(exchanged,1);
+});
+test('content security: msgSecCheck verdicts gate chat, profile and registration; pass lets everything through',async()=>{
+  // 注入可编程的 msgCheck：默认 pass，特定内容返回 review/risky。
+  const repo=new MemoryRepository();let now=1800000000000;
+  await repo.put('stores','main',{name:'测试门店',enabled:true,createdAt:now});
+  let checked=[];
+  const service=createService({repo,clock:()=>now,bootstrapOpenid:'admin',
+    phoneExchange:async code=>({purePhoneNumber:code,countryCode:'86'}),qrCode:async()=>'',
+    msgCheck:async(content,scene,openid)=>{checked.push({content,scene,openid});
+      if(content.indexOf('评审词')>-1)return 'review';
+      if(content.indexOf('违规词')>-1)return 'risky';
+      return 'pass';}});
+  const call=(openid,token,action,data={})=>service({token,action,data},{openid});
+  const reg=(openid,phone,more={})=>call(openid,'','auth.phone',{mode:'register',consent:true,code:phone,nickname:'邻居',park:'一园区',gender:'不愿透露',storeId:'main',...more});
+  // 注册昵称含违规词：拦截，用户不落地。
+  await fails(reg('u1','13800000001',{nickname:'违规词用户'}),'CONTENT');
+  assert.deepEqual(Object.keys(repo.data.users||{}),[]);
+  // review 同样拦截（只有 pass 放行）。
+  await fails(reg('u1','13800000001',{nickname:'评审词用户'}),'CONTENT');
+  // 正常注册通过，且注册时确实做了 scene=1 检测。
+  const u=await reg('u1','13800000001');
+  assert.equal(u.user.role,'customer');
+  assert.equal(checked.some(c=>c.scene===1&&c.content==='邻居'&&c.openid==='u1'),true);
+  // 聊天：正常消息通过（scene=2），违规消息拦截且不入库。
+  const room=await call('u1',u.token,'chat.open',{});
+  await call('u1',u.token,'chat.send',{roomId:room.roomId,content:'你好，请问营业时间？',requestId:'m1'});
+  assert.equal((repo.data.messages&&Object.keys(repo.data.messages).length)||0,1);
+  assert.equal(checked.some(c=>c.scene===2),true);
+  await fails(call('u1',u.token,'chat.send',{roomId:room.roomId,content:'违规词了解一下',requestId:'m2'}),'CONTENT');
+  assert.equal(Object.keys(repo.data.messages).length,1);
+  // 改资料昵称含违规词：拦截；正常昵称通过。
+  await fails(call('u1',u.token,'profile.update',{nickname:'违规词昵称',park:'一园区',gender:'男'}),'CONTENT');
+  const saved=await call('u1',u.token,'profile.update',{nickname:'好邻居',park:'二园区',gender:'男'});
+  assert.equal(saved.user.nickname,'好邻居');
+  // 未注入 msgCheck 的环境（如单元测试 fixture）默认放行——不改变既有行为。
+  const plain=await fixture();
+  const p=await plain.register('p','13800000009');
+  const proom=await plain.call('p',p.token,'chat.open',{});
+  await plain.call('p',p.token,'chat.send',{roomId:proom.roomId,content:'任何内容都放行',requestId:'x1'});
 });

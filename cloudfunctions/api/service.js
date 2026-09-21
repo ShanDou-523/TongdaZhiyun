@@ -1,8 +1,10 @@
 const crypto = require('crypto');
-const { hash, uid, BusinessError, requireThat: need, text, profile, publicUser, allowedConversation } = require('./domain');
-const INSPECT = ['users','stores','conversations','messages','notifications','services','auditLogs'];
+const { hash, uid, CATEGORIES, BusinessError, requireThat: need, text, profile, publicUser, allowedConversation } = require('./domain');
+const INSPECT = ['users','stores','conversations','messages','notifications','services','banners','auditLogs'];
+// 广告素材类型：none 纯文案；image 海报图；video 短视频。素材文件存云存储，库里只存 fileID。
+const MEDIA_TYPES = ['none','image','video'];
 // All repository access runs on the trusted server; no client database permissions are needed.
-function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', clock = Date.now }) {
+function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', clock = Date.now, devLogin = false, msgCheck = null, allowLocalMedia = false }) {
   async function actor(ctx, token, source = repo) {
     need(ctx.openid, 'AUTH', '请重新登录');
     const user = await source.get('users', uid(ctx.openid));
@@ -13,6 +15,14 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
   const admin = user => need(user.role === 'admin', 'FORBIDDEN', '仅管理员可操作');
   const staff = user => need(['store','admin'].includes(user.role), 'FORBIDDEN', '仅门店或管理员可操作');
   const page = value => { const n = value === undefined ? 0 : Number(value); need(Number.isInteger(n) && n >= 0 && n <= 10000, 'INVALID', '分页参数错误'); return n; };
+  // 内容安全检测（微信平台对 UGC 的强制要求，提审必查）。
+  // scene 枚举：1 资料（昵称等）；2 评论（聊天消息）。仅 'pass' 放行，'review'/'risky' 一律拦截。
+  // 检测在事务外执行（外部网络调用不进事务）；msgCheck 未注入时不检测（测试环境默认放行）。
+  async function checkContent(content, scene, ctx) {
+    if (!msgCheck) return;
+    const suggest = await msgCheck(content, scene, ctx.openid);
+    need(suggest === 'pass', 'CONTENT', '内容包含违规信息，请修改后重试');
+  }
   async function audit(tx, user, action, target, detail) { await tx.put('auditLogs', crypto.randomBytes(16).toString('hex'), { actorId: user._id, action, target, detail, createdAt: clock() }); }
   async function authenticate(data, ctx) {
     need(ctx.openid, 'AUTH', '无法获取微信身份，请在微信内打开');
@@ -20,10 +30,16 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
     need(['login','register'].includes(data.mode), 'INVALID', '登录方式无效');
     const code = text(data.code, 512, '手机号验证凭证');
     let info;
-    try { info = await phoneExchange(code); } catch (_) { throw new BusinessError('PHONE', '手机号验证失败，请重新点击授权；若持续失败，请检查平台手机号能力配置'); }
+    // 开发期登录开关（仅当服务端显式注入 devLogin 时生效）：接受 "dev:<手机号>" 形式的
+    // 凭证，跳过微信手机号能力验证。个人主体小程序没有「获取手机号」能力，联调期靠它打通
+    // 注册登录；手机号格式、绑定关系、角色分配等全部校验保持不变。
+    // 生产环境不得注入 devLogin，此分支永远不会执行。
+    if (devLogin && code.indexOf('dev:') === 0) info = { purePhoneNumber: code.slice(4), countryCode: '86' };
+    else try { info = await phoneExchange(code); } catch (_) { throw new BusinessError('PHONE', '手机号验证失败，请重新点击授权；若持续失败，请检查平台手机号能力配置'); }
     const phone = info?.purePhoneNumber;
     need(info?.countryCode === '86' && /^1\d{10}$/.test(phone || ''), 'PHONE', '当前仅支持中国大陆手机号');
     const id = uid(ctx.openid), token = crypto.randomBytes(32).toString('hex'), now = clock();
+    if (data.mode === 'register') await checkContent(profile(data).nickname, 1, ctx);
     return repo.transaction(async tx => {
       let user = await tx.get('users', id);
       const claimId = hash(`86:${phone}`), claim = await tx.get('phoneClaims', claimId);
@@ -59,8 +75,10 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
     const user = await actor(ctx, event.token);
     if (action === 'me') return { user: publicUser(user), store: await repo.get('stores', user.storeId) };
     if (action === 'logout') return repo.transaction(async tx => { const fresh = await actor(ctx, event.token, tx); await tx.put('users', fresh._id, { ...fresh, sessionHash: '', sessionExpiresAt: 0 }); return {}; });
-    if (action === 'profile.update') return repo.transaction(async tx => { const fresh = await actor(ctx, event.token, tx); const saved = { ...fresh, ...profile(data), updatedAt: clock() }; await tx.put('users', fresh._id, saved); return { user: publicUser(saved) }; });
+    if (action === 'profile.update') return (async () => { await checkContent(profile(data).nickname, 1, ctx); return repo.transaction(async tx => { const fresh = await actor(ctx, event.token, tx); const saved = { ...fresh, ...profile(data), updatedAt: clock() }; await tx.put('users', fresh._id, saved); return { user: publicUser(saved) }; }); })();
     if (action === 'services.list') return { items: await repo.list('services', { enabled: true }, { order: 'createdAt', limit: 30 }) };
+    // 首页广告位：只下发启用的，按权重从高到低，最多 5 条，后台改完即实时生效。
+    if (action === 'banners.list') return { items: await repo.list('banners', { enabled: true }, { order: 'weight', direction: 'desc', limit: 5 }) };
     if (action === 'chat.open') return repo.transaction(async tx => {
       const fresh = await actor(ctx, event.token, tx);
       let customer = fresh;
@@ -95,6 +113,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       const content = text(data.content, 1000, '消息');
       const requestId = text(data.requestId, 80, '消息编号');
       need(/^[a-zA-Z0-9_-]+$/.test(requestId), 'INVALID', '消息编号无效');
+      await checkContent(content, 2, ctx);
       return repo.transaction(async tx => {
         const fresh = await actor(ctx, event.token, tx), room = await roomFor(fresh, data.roomId, tx);
         const id = hash(`${fresh._id}:${room._id}:${requestId}`);
@@ -149,6 +168,74 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       await tx.put('stores', id, { name, enabled: data.enabled, createdAt: old?.createdAt || clock(), updatedAt: clock() });
       await audit(tx, fresh, 'store.save', id, { name, enabled: data.enabled }); return {};
     });
+    if (action === 'admin.services') { admin(user); return { items: await repo.list('services', {}, { order: 'createdAt', limit: 100 }) }; }
+    if (action === 'admin.serviceSave') return repo.transaction(async tx => {
+      const fresh = await actor(ctx, event.token, tx); admin(fresh);
+      const name = text(data.name, 40, '服务名称');
+      need(Object.keys(CATEGORIES).includes(data.category), 'INVALID', '请选择服务类别');
+      const description = text(data.description, 60, '服务说明');
+      need(typeof data.enabled === 'boolean', 'INVALID', '服务状态无效');
+      // Existing ids are edited in place; new services get a server-side id.
+      const id = data.id ? text(data.id, 32, '服务编号') : crypto.randomBytes(12).toString('hex');
+      const old = await tx.get('services', id);
+      need(!data.id || old, 'INVALID', '服务不存在或已被删除');
+      await tx.put('services', id, { name, category: data.category, description, enabled: data.enabled, createdAt: old?.createdAt || clock(), updatedAt: clock() });
+      await audit(tx, fresh, 'service.save', id, { name, category: data.category, enabled: data.enabled });
+      return { id };
+    });
+    if (action === 'admin.serviceDelete') return repo.transaction(async tx => {
+      const fresh = await actor(ctx, event.token, tx); admin(fresh);
+      const id = text(data.id, 32, '服务编号');
+      need(await tx.get('services', id), 'INVALID', '服务不存在或已被删除');
+      await tx.remove('services', id);
+      await audit(tx, fresh, 'service.delete', id, {});
+      return {};
+    });
+    if (action === 'admin.banners') { admin(user); return { items: await repo.list('banners', {}, { order: 'createdAt', limit: 100 }) }; }
+    // 广告文案虽由管理员填写，同样过内容安全检测——所有会展示给用户的内容统一纳管。
+    // 素材（海报/视频）由专业同事制作、管理员上传，属官方内容而非 UGC，不做图片/视频鉴黄。
+    // 校验素材参数：mediaType 必填枚举；image/video 时 mediaFileID 必须是 cloud:// 开头的云存储文件 ID。
+    function media(data) {
+      const type = data.mediaType === undefined ? 'none' : data.mediaType;
+      need(MEDIA_TYPES.includes(type), 'INVALID', '广告素材类型无效');
+      if (type === 'none') return { mediaType: 'none', mediaFileID: '' };
+      need(typeof data.mediaFileID === 'string' && (data.mediaFileID.startsWith('cloud://') || (allowLocalMedia && data.mediaFileID.length > 0)) && data.mediaFileID.length <= 256, 'INVALID', '请先上传广告素材（图片或视频）');
+      return { mediaType: type, mediaFileID: data.mediaFileID };
+    }
+    // 素材可能被其他广告引用；删除记录不自动删除文件，待引用核验后由管理员清理。
+    if (action === 'admin.bannerSave') return (async () => {
+      admin(user);
+      await checkContent(text(data.title, 30, '广告标题'), 2, ctx);
+      await checkContent(text(data.subtitle, 60, '广告说明'), 2, ctx);
+      const saved = await repo.transaction(async tx => {
+        const fresh = await actor(ctx, event.token, tx); admin(fresh);
+        const title = text(data.title, 30, '广告标题');
+        const subtitle = text(data.subtitle, 60, '广告说明');
+        const weight = data.weight;
+        need(typeof weight === 'number' && Number.isInteger(weight) && weight >= 0 && weight <= 999, 'INVALID', '权重须为 0–999 的整数，数字越大越靠前');
+        need(typeof data.enabled === 'boolean', 'INVALID', '广告状态无效');
+        const id = data.id ? text(data.id, 32, '广告编号') : crypto.randomBytes(12).toString('hex');
+        const old = await tx.get('banners', id);
+        need(!data.id || old, 'INVALID', '广告不存在或已被删除');
+        const m = media(data);
+        await tx.put('banners', id, { title, subtitle, weight, enabled: data.enabled, mediaType: m.mediaType, mediaFileID: m.mediaFileID, createdAt: old?.createdAt || clock(), updatedAt: clock() });
+        await audit(tx, fresh, 'banner.save', id, { title, weight, enabled: data.enabled, mediaType: m.mediaType });
+        return { id };
+      });
+      return { id: saved.id };
+    })();
+    if (action === 'admin.bannerDelete') return (async () => {
+      await repo.transaction(async tx => {
+        const fresh = await actor(ctx, event.token, tx); admin(fresh);
+        const id = text(data.id, 32, '广告编号');
+        const old = await tx.get('banners', id);
+        need(old, 'INVALID', '广告不存在或已被删除');
+        await tx.remove('banners', id);
+        await audit(tx, fresh, 'banner.delete', id, {});
+        return { mediaFileID: old.mediaFileID || '' };
+      });
+      return {};
+    })();
     if (action === 'admin.userUpdate') return repo.transaction(async tx => {
       const fresh = await actor(ctx, event.token, tx); admin(fresh);
       const target = await tx.get('users', text(data.id, 32, '用户'));

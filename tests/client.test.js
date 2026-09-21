@@ -6,7 +6,7 @@ const path = require('path');
 function page(name, api = {}, wx = {}, app = {globalData:{}}, timers = {setTimeout,clearTimeout}) {
   let result;
   const code = fs.readFileSync(path.join(__dirname,'../miniprogram/pages',name,'index.js'),'utf8');
-  vm.runInNewContext(code,{require: name => name.endsWith('/api') ? api : require('../miniprogram/utils/constants'),Page: p => {result=p;},getApp:()=>app,wx,console,setTimeout:timers.setTimeout,clearTimeout:timers.clearTimeout,Map,Date,Math});
+  vm.runInNewContext(code,{require: name => name.endsWith('/api') ? api : name.endsWith('/config') ? {devLogin:true} : require('../miniprogram/utils/constants'),Page: p => {result=p;},getApp:()=>app,wx,console,setTimeout:timers.setTimeout,clearTimeout:timers.clearTimeout,Map,Date,Math});
   result.setData = function(update, callback) { Object.assign(this.data,update); if(callback)callback(); };
   return result;
 }
@@ -151,4 +151,40 @@ test('missing phone event detail is handled as recoverable authorization failure
   let calls=0;const p=page('auth',{call:async()=>calls++});p.data.consent=true;
   await p.authorize({});
   assert.equal(calls,0);assert.match(p.data.error,/重新尝试/);
+});
+
+
+test('other-campus registration forwards detail and blocks an empty location',async()=>{
+  let submitted;const p=page('auth',{call:async(a,d)=>{submitted=d;return {token:'t',user:{}};}},{setStorageSync(){},switchTab(){}});
+  Object.assign(p.data,{consent:true,nickname:'邻居',stores:[{_id:'main'}],parkIndex:p.data.parks.indexOf('其它')});
+  await p.authorize({detail:{code:'verified'}});assert.equal(submitted,undefined);assert.match(p.data.error,/具体园区/);
+  p.data.parkDetail='青教公寓1号楼';await p.authorize({detail:{code:'verified'}});
+  assert.equal(submitted.parkDetail,'青教公寓1号楼');assert.equal(require('../cloudfunctions/api/domain').profile(submitted).parkDetail,'青教公寓1号楼');
+});
+test('development phone login is blocked on release and unknown runtimes',async()=>{
+  for(const version of ['release','unknown']){
+    let calls=0;const p=page('auth',{call:async()=>{calls++;}},{getAccountInfoSync:()=>({miniProgram:{envVersion:version}})});
+    Object.assign(p.data,{consent:true,mode:'login'});await p.devAuth();assert.equal(calls,0);assert.match(p.data.error,/不支持开发登录/);
+  }
+  let code;const p=page('auth',{call:async(a,d)=>{code=d.code;return {token:'t',user:{}};}},{getAccountInfoSync:()=>({miniProgram:{envVersion:'develop'}}),setStorageSync(){},switchTab(){}});
+  Object.assign(p.data,{consent:true,mode:'login'});await p.devAuth();assert.equal(code,'dev:13000000001');
+});
+test('profile nickname input remains wired to the generic field handler',()=>{
+  const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/profile/index.wxml'),'utf8');
+  const input=template.match(/<input[^>]*value="{{nickname}}"[^>]*>/)[0];
+  const key=input.match(/data-key="([^"]+)"/)[1];const p=page('profile');
+  p.input({currentTarget:{dataset:{key}},detail:{value:'新昵称'}});assert.equal(p.data.nickname,'新昵称');
+});
+test('demo banner upload and preview never invoke cloud media APIs',async()=>{
+  let payload;const wx={cloud:{uploadFile(){throw Error('cloud forbidden');},getTempFileURL(){throw Error('cloud forbidden');}},showToast(){}};
+  const p=page('admin',{call:async(a,d)=>{payload=d;}},wx);p.load=async()=>{};
+  Object.assign(p.data,{demoMode:true,bannerTitle:'活动',bannerSubtitle:'欢迎',bannerWeight:50,bannerMediaType:'image',bannerMedia:'wxfile://tmp/a.jpg'});
+  await p.saveBanner();assert.equal(payload.mediaFileID,'wxfile://tmp/a.jpg');assert.equal(p.data.error,'');
+  const home=page('home',{},wx);home.data.demoMode=true;
+  const result=await home.resolveMedia([{mediaFileID:'wxfile://tmp/a.jpg'},{mediaFileID:'cloud://demo/test'}]);assert.equal(result[0].mediaUrl,'wxfile://tmp/a.jpg');
+});
+test('banner retry reuses uploaded file after failed save',async()=>{
+  let uploads=0,calls=0;const p=page('admin',{call:async()=>{if(++calls===1)throw Error('offline');}},{cloud:{uploadFile:async()=>{uploads++;return {fileID:'cloud://env/banners/a.jpg'};}},showToast(){}});p.load=async()=>{};
+  Object.assign(p.data,{demoMode:false,bannerTitle:'活动',bannerSubtitle:'欢迎',bannerWeight:50,bannerMediaType:'image',bannerMedia:'wxfile://tmp/a.jpg'});
+  await p.saveBanner();assert.equal(p.data.bannerMedia,'cloud://env/banners/a.jpg');await p.saveBanner();assert.equal(uploads,1);assert.equal(calls,2);
 });

@@ -180,3 +180,17 @@ test('single-store demo ignores legacy two-store data and sessions without delet
   assert.deepEqual(f.storage.get('yuanlin.demo.data.v1'),legacy);
   await fails(f.login('staff_b'),'INVALID');
 });
+
+
+test('single-store demo supports service and banner CRUD across roles and rejects customer writes',async()=>{
+ const f=fixture();await f.login('admin');
+ const service=await f.demo.call('admin.serviceSave',{name:'洗鞋',description:'联系门店咨询',category:'laundry',enabled:true});
+ const banner=await f.demo.call('admin.bannerSave',{title:'活动',subtitle:'演示广告',weight:999,enabled:true,mediaType:'image',mediaFileID:'wxfile://tmp/poster.jpg'});
+ await f.login('customer_a');assert.ok((await f.demo.call('services.list')).items.some(s=>s._id===service.id));assert.equal((await f.demo.call('banners.list')).items[0].mediaFileID,'wxfile://tmp/poster.jpg');
+ await fails(f.demo.call('admin.bannerDelete',{id:banner.id}),'FORBIDDEN');
+ await f.login('admin');await f.demo.call('admin.bannerDelete',{id:banner.id});await f.demo.call('admin.serviceDelete',{id:service.id});
+ assert.ok(!(await f.demo.call('services.list')).items.some(s=>s._id===service.id));assert.ok(!(await f.demo.call('banners.list')).items.some(s=>s._id===banner.id));assert.equal((await f.demo.stores()).length,1);
+});
+test('demo registration supports other-campus location using the cloud validation rules',async()=>{
+ const f=fixture();const user=await f.demo.register({nickname:'新邻居',park:'其它',parkDetail:'测试楼',gender:'不愿透露',storeId:'main'});assert.equal(user.parkDetail,'测试楼');
+});

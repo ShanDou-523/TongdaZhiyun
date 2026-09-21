@@ -1,1 +1,1 @@
-module.exports = { parks: ['一园区','二园区','三园区','四园区','五园区','六园区','七园区','八园区','九园区','十园区'], genders: ['不愿透露','女','男'], roles: { customer: '客户', store: '门店', admin: '管理员' } };
+module.exports = { parks: ['一园区','二园区','三园区','四园区','五园区','六园区','七园区','八园区','九园区','十园区','十一园区','青教公寓','其它'], genders: ['不愿透露','女','男'], roles: { customer: '客户', store: '门店', admin: '管理员' }, categories: { laundry: '衣物洗护', housekeeping: '家政服务' } };
