@@ -119,3 +119,20 @@ test('演示层：广告位按权重排序、只显示投放中的，管理端�
   assert.ok(actions.includes('banner.save') && actions.includes('banner.delete'));
   mock.reset();
 });
+
+test('演示层：门店删除受引用校验保护，无引用时才可删', () => {
+  const admin = enter('admin'), customer = enter('customer');
+  // 越权
+  fails(() => mock.call('admin.storeDelete', { id: 'east' }, customer.token), 'FORBIDDEN');
+  // main 下有预置账户 → 拒绝，并引导去账户页
+  assert.throws(() => mock.call('admin.storeDelete', { id: 'main' }, admin.token), e => e.code === 'INVALID' && /账户/.test(e.message));
+  // 没有任何引用的门店可以删除，删完从管理列表消失
+  mock.call('admin.storeDelete', { id: 'east' }, admin.token);
+  assert.ok(!mock.call('admin.stores', {}, admin.token).items.some(s => s._id === 'east'));
+  // 重复删除
+  fails(() => mock.call('admin.storeDelete', { id: 'east' }, admin.token), 'INVALID');
+  // 删除动作留审计
+  const actions = mock.call('admin.inspect', { collection: 'auditLogs' }, admin.token).items.map(x => x.action);
+  assert.ok(actions.includes('store.delete'));
+  mock.reset();
+});

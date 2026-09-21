@@ -1,6 +1,6 @@
 const cloud = require('wx-server-sdk');
 const { createService } = require('./service');
-const { BusinessError } = require('./domain');
+const { BusinessError, resolveOpenid, escapeRegExp } = require('./domain');
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
 const db = cloud.database();
 function repository(source) {
@@ -12,8 +12,14 @@ function repository(source) {
     async put(collection, id, data) { const clean = { ...data }; delete clean._id; await source.collection(collection).doc(id).set({ data: clean }); },
     async remove(collection, id) { await source.collection(collection).doc(id).remove(); },
     async list(collection, filter, options = {}) {
-      const where = { ...filter };
+      let where = { ...filter };
       if (options.before !== undefined) where[options.order] = db.command.lt(options.before);
+      // 关键词搜索：在指定字段上做不区分大小写的模糊匹配，与原有等值条件取交集。
+      // 用户输入的正则元字符要先转义，否则一个 "." 就能匹配全部记录。
+      if (options.search && options.search.keyword) {
+        const rx = db.RegExp({ regexp: escapeRegExp(options.search.keyword), options: 'i' });
+        where = db.command.and([where, db.command.or(options.search.fields.map(field => ({ [field]: rx })))]);
+      }
       let query = source.collection(collection).where(where).orderBy(options.order || 'createdAt', options.direction || 'desc');
       if (options.skip) query = query.skip(options.skip);
       return (await query.limit(options.limit || 20).get()).data;
@@ -51,9 +57,14 @@ const service = createService({
 });
 exports.main = async event => {
   try {
-    const openid = cloud.getWXContext().OPENID;
-    // 开发期登录开关开启时，把调用者 openid 打进日志，方便配置 BOOTSTRAP_ADMIN_OPENID。
-    if (process.env.DEV_LOGIN === '1') console.log('dev caller openid:', openid);
+    const devLogin = process.env.DEV_LOGIN === '1';
+    const wxOpenid = cloud.getWXContext().OPENID;
+    // 开发期身份切换：devLogin 开启时，前端可用 devActor（11 位手机号）指定这次调用扮演谁，
+    // 同一个微信号据此分饰客户 / 门店 / 管理员，做多端联调。生产环境不设 DEV_LOGIN，
+    // resolveOpenid 恒返回真实 openid，此能力不存在。
+    const openid = resolveOpenid(wxOpenid, event && event.devActor, devLogin);
+    // 把调用者真实 openid 打进日志，方便配置 BOOTSTRAP_ADMIN_OPENID。
+    if (devLogin) console.log('dev caller openid:', wxOpenid, '| actor:', openid);
     return { ok: true, data: await service(event, { openid }) };
   }
   catch (error) {

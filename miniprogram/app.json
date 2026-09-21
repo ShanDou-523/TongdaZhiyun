@@ -7,7 +7,11 @@
     "pages/chat/index",
     "pages/staff/index",
     "pages/admin/index",
-    "pages/privacy/index"
+    "pages/privacy/index",
+    "pages/order/create/index",
+    "pages/order/mine/index",
+    "pages/runner/apply/index",
+    "pages/runner/hall/index"
   ],
   "window": {
     "navigationBarTitleText": "园邻",

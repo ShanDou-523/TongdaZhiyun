@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createService } = require('../cloudfunctions/api/service');
-const { uid, hash } = require('../cloudfunctions/api/domain');
+const { uid, hash, resolveOpenid, escapeRegExp } = require('../cloudfunctions/api/domain');
 
 class MemoryRepository {
   constructor() { this.data = {}; this.queue = Promise.resolve(); }
@@ -10,6 +10,10 @@ class MemoryRepository {
   async remove(c, id) { delete (this.data[c] || {})[id]; }
   async list(c, filter, options = {}) {
     let rows = Object.values(this.data[c] || {}).filter(x => Object.entries(filter).every(([k,v]) => x[k] === v));
+    if (options.search && options.search.keyword) {
+      const kw = String(options.search.keyword).toLowerCase();
+      rows = rows.filter(x => options.search.fields.some(f => String(x[f] || '').toLowerCase().includes(kw)));
+    }
     if (options.before !== undefined) rows = rows.filter(x => x[options.order] < options.before);
     rows.sort((a,b) => (a[options.order] - b[options.order]) * (options.direction === 'asc' ? 1 : -1));
     return structuredClone(rows.slice(options.skip || 0, (options.skip || 0) + (options.limit || 20)));
@@ -263,4 +267,253 @@ test('content security: msgSecCheck verdicts gate chat, profile and registration
   const p=await plain.register('p','13800000009');
   const proom=await plain.call('p',p.token,'chat.open',{});
   await plain.call('p',p.token,'chat.send',{roomId:proom.roomId,content:'任何内容都放行',requestId:'x1'});
+});
+
+test('store deletion is admin-only, blocked while referenced, and audited',async()=>{
+  const {repo,call,register}=await fixture();
+  const admin=await register('admin','13800000001');
+  const customer=await register('customer','13800000002');
+
+  // 权限：客户和未登录都进不来
+  await fails(call('customer',customer.token,'admin.storeDelete',{id:'other'}),'FORBIDDEN');
+  await fails(call('nobody','','admin.storeDelete',{id:'other'}),'AUTH');
+  // 要删的门店必须存在
+  await fails(call('admin',admin.token,'admin.storeDelete',{id:'ghost'}),'INVALID');
+
+  // 被会话引用的门店不能删，错误信息要引导改用「停用」
+  await repo.put('conversations','room-x',{customerId:'c',storeId:'other',lastText:'',lastMessageAt:0,createdAt:1});
+  await assert.rejects(call('admin',admin.token,'admin.storeDelete',{id:'other'}),e=>e.code==='INVALID'&&/停用/.test(e.message));
+  await repo.remove('conversations','room-x');
+
+  // other 已无任何引用 → 真删成功
+  await call('admin',admin.token,'admin.storeDelete',{id:'other'});
+  assert.equal(await repo.get('stores','other'),null);
+
+  // main 下还有账户（含管理员自己）→ 拒绝，并指向账户页
+  await assert.rejects(call('admin',admin.token,'admin.storeDelete',{id:'main'}),e=>e.code==='INVALID'&&/账户/.test(e.message));
+  // 已删除的门店再删一次
+  await fails(call('admin',admin.token,'admin.storeDelete',{id:'other'}),'INVALID');
+
+  // 删除动作留痕，且只留一条
+  assert.equal((await repo.list('auditLogs',{action:'store.delete'},{order:'createdAt',limit:10})).length,1);
+});
+
+test('dev actor switch: only with dev login on, and only for a plain 11-digit phone',()=>{
+  // 开着才换身份，换出来的是手机号本身
+  assert.equal(resolveOpenid('real-openid','13800000001',true),'13800000001');
+  // 关掉一定回落到真实 openid —— 生产环境走的就是这条路径
+  assert.equal(resolveOpenid('real-openid','13800000001',false),'real-openid');
+  // 形状不对一律不接受：真实 openid 是 28 位混排字符串，不该被误认成手机号
+  assert.equal(resolveOpenid('real-openid','oABCDEF1234567890abcdefghijkl',true),'real-openid');
+  assert.equal(resolveOpenid('real-openid','1380000000',true),'real-openid');
+  assert.equal(resolveOpenid('real-openid','23800000001',true),'real-openid');
+  assert.equal(resolveOpenid('real-openid','13800000001x',true),'real-openid');
+  // 空值、非字符串都不能得逞
+  assert.equal(resolveOpenid('real-openid','',true),'real-openid');
+  assert.equal(resolveOpenid('real-openid',undefined,true),'real-openid');
+  assert.equal(resolveOpenid('real-openid',{ toString: () => '13800000001' },true),'real-openid');
+  assert.equal(resolveOpenid('real-openid',['13800000001'],true),'real-openid');
+});
+
+test('customer can switch service store; only enabled ones, and the role is untouched',async()=>{
+  const {repo,call,register}=await fixture();
+  const admin=await register('admin','13800000001');
+  const customer=await register('customer','13800000002');
+  assert.equal((await repo.get('users',customer.user._id)).storeId,'main');
+
+  await call('customer',customer.token,'store.switch',{storeId:'other'});
+  const moved=await repo.get('users',customer.user._id);
+  assert.equal(moved.storeId,'other');
+  assert.equal(moved.role,'customer','换门店不该动角色');
+
+  await fails(call('customer',customer.token,'store.switch',{storeId:'other'}),'INVALID');
+  await fails(call('customer',customer.token,'store.switch',{storeId:'ghost'}),'INVALID');
+
+  await repo.put('stores','main',{name:'测试门店',enabled:false,createdAt:1});
+  await fails(call('customer',customer.token,'store.switch',{storeId:'main'}),'INVALID');
+
+  await fails(call('admin',admin.token,'store.switch',{storeId:'other'}),'FORBIDDEN');
+
+  assert.equal((await repo.list('auditLogs',{action:'store.switch'},{order:'createdAt',limit:10})).length,1);
+});
+
+test('account search matches nickname or phone, and store staff stay inside their own store',async()=>{
+  const {call,register,provision}=await fixture();
+  const admin=await register('admin','13800000001');
+  await register('zhang','13900000001',{nickname:'张三'});
+  await register('li','13900000002',{nickname:'李四',storeId:'other'});
+  await register('dot','13900000003',{nickname:'王.五'});
+
+  const byName=await call('admin',admin.token,'staff.customers',{keyword:'张'});
+  assert.deepEqual(byName.items.map(u=>u.nickname),['张三']);
+
+  const byPhone=await call('admin',admin.token,'staff.customers',{keyword:'0002'});
+  assert.deepEqual(byPhone.items.map(u=>u.nickname),['李四']);
+
+  // 点号按字面量处理：只命中真的含点号的名字，不会把所有人都拉出来
+  const byDot=await call('admin',admin.token,'staff.customers',{keyword:'.'});
+  assert.deepEqual(byDot.items.map(u=>u.nickname),['王.五']);
+
+  assert.equal((await call('admin',admin.token,'staff.customers',{keyword:'查无此人'})).items.length,0);
+
+  // 换成门店员工身份后，只能搜到自己店里的客户
+  await provision('admin','store','main');
+  const scoped=await call('admin',admin.token,'staff.customers',{keyword:''});
+  assert.ok(scoped.items.length>0 && scoped.items.every(u=>u.storeId==='main'),'门店员工不该看到别家店的客户');
+});
+
+test('search keyword is escaped before it reaches a regex',()=>{
+  assert.equal(escapeRegExp('13800000001'),'13800000001');
+  assert.equal(escapeRegExp('a.b'),'a\\.b');
+  assert.equal(escapeRegExp('.*'),'\\.\\*');
+  assert.equal(escapeRegExp('(x)[y]{z}'),'\\(x\\)\\[y\\]\\{z\\}');
+  assert.equal(new RegExp(escapeRegExp('.')).test('abc'),false,'转义后不再匹配任意字符');
+  assert.equal(new RegExp(escapeRegExp('.')).test('a.b'),true);
+});
+
+// 下单通用前置：建一个启用的服务，返回它的 id。
+async function withService(call,admin){
+  await call('admin',admin.token,'admin.serviceSave',{name:'衣物洗护',category:'laundry',description:'按件收洗，48小时可取',enabled:true});
+  return (await call('admin',admin.token,'admin.services')).items.find(s=>s.name==='衣物洗护')._id;
+}
+
+test('order: customer places a self-drop order, store drives it to done',async()=>{
+  const {repo,call,register,provision}=await fixture();
+  const admin=await register('admin','13800000001');
+  const serviceId=await withService(call,admin);
+  const customer=await register('customer','13800000002');
+
+  const created=await call('customer',customer.token,'order.create',{serviceId,items:'两件外套',park:'一园区',parkDetail:'3号楼502',contact:'13800000002',delivery:'self'});
+  assert.equal(created.order.status,'submitted');
+  assert.equal(created.order.fee,0,'自送不收跑腿费');
+
+  // 参数校验
+  await fails(call('customer',customer.token,'order.create',{serviceId,items:'',park:'一园区',parkDetail:'x',contact:'13800000002',delivery:'self'}),'INVALID');
+  await fails(call('customer',customer.token,'order.create',{serviceId,items:'x',park:'不存在园区',parkDetail:'x',contact:'13800000002',delivery:'self'}),'INVALID');
+  await fails(call('customer',customer.token,'order.create',{serviceId,items:'x',park:'一园区',parkDetail:'x',contact:'123',delivery:'self'}),'INVALID');
+  await fails(call('customer',customer.token,'order.create',{serviceId,items:'x',park:'一园区',parkDetail:'x',contact:'13800000002',delivery:'teleport'}),'INVALID');
+
+  const shop=await register('shop','13800000003');
+  await provision('shop','store','main');
+
+  // 门店不能跳步：先接单再完成
+  await fails(call('shop',shop.token,'order.finish',{id:created.id}),'INVALID');
+  await call('shop',shop.token,'order.accept',{id:created.id});
+  assert.equal((await repo.get('orders',created.id)).status,'serving');
+  await call('shop',shop.token,'order.finish',{id:created.id});
+  assert.equal((await repo.get('orders',created.id)).status,'done');
+
+  // 完成后不能再取消
+  await fails(call('customer',customer.token,'order.cancel',{id:created.id}),'INVALID');
+
+  const mine=await call('customer',customer.token,'order.mine',{});
+  assert.deepEqual(mine.items.map(o=>o.status),['done']);
+  assert.deepEqual(mine.items.map(o=>o.statusText),['已完成']);
+});
+
+test('order: runner flow from application to delivery; pickup phone stays hidden until taken',async()=>{
+  const {repo,call,register,provision,deletedFiles}=await fixture();
+  const admin=await register('admin','13800000001');
+  const serviceId=await withService(call,admin);
+  const customer=await register('customer','13800000002');
+  const runner=await register('runner','13800000003');
+
+  // 没认证不能进大厅
+  await fails(call('runner',runner.token,'order.pool',{}),'FORBIDDEN');
+  // 证件照片必须是云存储 fileID
+  await fails(call('runner',runner.token,'runner.apply',{realName:'李四',schoolId:'2023001',idCardPhoto:'https://example.com/a.jpg',studentCardPhoto:'cloud://stu-1'}),'INVALID');
+
+  await call('runner',runner.token,'runner.apply',{realName:'李四',schoolId:'2023001',idCardPhoto:'cloud://id-1',studentCardPhoto:'cloud://stu-1'});
+  assert.equal((await repo.get('users',runner.user._id)).runner.status,'pending');
+  // 审核前重复申请要被挡
+  await fails(call('runner',runner.token,'runner.apply',{realName:'李四',schoolId:'2023001',idCardPhoto:'cloud://id-1',studentCardPhoto:'cloud://stu-1'}),'INVALID');
+
+  // 管理员通过：证件引用清掉，原件从云存储删除
+  await call('admin',admin.token,'admin.runnerReview',{id:runner.user._id,result:'approved'});
+  const approved=await repo.get('users',runner.user._id);
+  assert.equal(approved.runner.status,'approved');
+  assert.equal(approved.runner.idCardPhoto,undefined,'不留证件原件');
+  assert.equal(approved.runner.schoolId,undefined,'不留学号');
+  assert.deepEqual(deletedFiles.slice().sort(),['cloud://id-1','cloud://stu-1']);
+
+  const created=await call('customer',customer.token,'order.create',{serviceId,items:'一件羽绒服',park:'二园区',parkDetail:'5号楼101',contact:'13800000002',delivery:'runner'});
+  assert.equal(created.order.fee,300,'默认跑腿费 3 元');
+
+  // 大厅能看到单，但看不到取件电话
+  const pool=await call('runner',runner.token,'order.pool',{});
+  assert.equal(pool.items.length,1);
+  assert.equal(pool.items[0].contact,undefined,'接单前不下发取件电话');
+
+  // 抢单成功后才给电话
+  const taken=await call('runner',runner.token,'order.take',{id:created.id});
+  assert.equal(taken.order.contact,'13800000002');
+  // 抢过就锁定，别人再抢拿不到
+  await fails(call('customer',customer.token,'order.take',{id:created.id}),'FORBIDDEN');
+  assert.equal((await call('runner',runner.token,'order.pool',{})).items.length,0,'已接的单不再出现在大厅');
+
+  // 只有接单的飞毛腿能推进
+  const other=await register('other','13800000004');
+  await fails(call('other',other.token,'order.runnerAdvance',{id:created.id,step:'picked'}),'FORBIDDEN');
+  await fails(call('runner',runner.token,'order.runnerAdvance',{id:created.id,step:'done'}),'INVALID');
+
+  await call('runner',runner.token,'order.runnerAdvance',{id:created.id,step:'picked'});
+  assert.equal((await repo.get('orders',created.id)).status,'picked');
+
+  // 还没送到门店，门店接不了单
+  const shop=await register('shop','13800000005');
+  await provision('shop','store','main');
+  await assert.rejects(call('shop',shop.token,'order.accept',{id:created.id}),e=>e.code==='INVALID'&&/飞毛腿/.test(e.message));
+
+  await call('runner',runner.token,'order.runnerAdvance',{id:created.id,step:'delivered'});
+  assert.equal((await repo.get('orders',created.id)).status,'delivered');
+  await call('shop',shop.token,'order.accept',{id:created.id});
+  assert.equal((await repo.get('orders',created.id)).status,'serving');
+});
+
+test('order: runner fee is admin-configurable and cancellation is role-scoped',async()=>{
+  const {repo,call,register,provision}=await fixture();
+  const admin=await register('admin','13800000001');
+  const serviceId=await withService(call,admin);
+  const customer=await register('customer','13800000002');
+
+  await fails(call('admin',admin.token,'admin.runnerFee',{fee:-1}),'INVALID');
+  await fails(call('admin',admin.token,'admin.runnerFee',{fee:'abc'}),'INVALID');
+  await fails(call('customer',customer.token,'admin.runnerFee',{fee:500}),'FORBIDDEN');
+
+  await call('admin',admin.token,'admin.runnerFee',{fee:500});
+  const created=await call('customer',customer.token,'order.create',{serviceId,items:'一双球鞋',park:'一园区',parkDetail:'1号楼101',contact:'13800000002',delivery:'runner'});
+  assert.equal(created.order.fee,500,'配置生效');
+
+  // 无关的人取消不了
+  const outsider=await register('outsider','13800000006');
+  await fails(call('outsider',outsider.token,'order.cancel',{id:created.id}),'FORBIDDEN');
+  // 门店可以取消本店订单
+  const shop=await register('shop','13800000003');
+  await provision('shop','store','main');
+  await call('shop',shop.token,'order.cancel',{id:created.id});
+  assert.equal((await repo.get('orders',created.id)).status,'cancelled');
+  // 已取消的单不能再取消
+  await fails(call('customer',customer.token,'order.cancel',{id:created.id}),'INVALID');
+});
+
+test('runner apply: dev placeholder photos are only accepted when dev login is on',async()=>{
+  // 先确认默认（生产形态）下占位符一律被拒
+  const strict=await fixture();
+  const r1=await strict.register('runner','13800000003');
+  await fails(strict.call('runner',r1.token,'runner.apply',{realName:'李四',schoolId:'2023001',idCardPhoto:'dev:idCard',studentCardPhoto:'dev:studentCard'}),'INVALID');
+  await fails(strict.call('runner',r1.token,'runner.apply',{realName:'李四',schoolId:'2023001',idCardPhoto:'http://example.com/a.jpg',studentCardPhoto:'dev:stu'}),'INVALID');
+
+  // 开发环境（devLogin 打开）才放行 dev: 占位符，其它形状依旧不行
+  const repo=new MemoryRepository(); const now=1800000000000;
+  await repo.put('stores','main',{name:'测试门店',enabled:true,createdAt:now});
+  const service=createService({ repo, clock:()=>now, devLogin:true, phoneExchange:async code=>({purePhoneNumber:code,countryCode:'86'}) });
+  const call=(openid,token,action,data={})=>service({token,action,data},{openid});
+  const reg=(openid,phone,nickname)=>call(openid,'','auth.phone',{mode:'register',consent:true,code:phone,nickname,park:'一园区',gender:'不愿透露',storeId:'main'});
+
+  const dev=await reg('devrunner','13800000005','李四');
+  await call('devrunner',dev.token,'runner.apply',{realName:'李四',schoolId:'2023001',idCardPhoto:'dev:idCard',studentCardPhoto:'dev:studentCard'});
+  assert.equal((await repo.get('users',dev.user._id)).runner.status,'pending','开发期占位符放行');
+
+  const bad=await reg('baduser','13800000006','王五');
+  await fails(call('baduser',bad.token,'runner.apply',{realName:'王五',schoolId:'1',idCardPhoto:'http://example.com/a.jpg',studentCardPhoto:'dev:stu'}),'INVALID');
 });

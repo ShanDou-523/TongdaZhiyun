@@ -30,8 +30,10 @@ Page({
   async devAuth() {
     if (this.data.busy) return;
     const phone = (this.data.devPhone || '').trim();
-    if (!/^1\d{10}$/.test(phone)) { this.setData({ error: '请输入 11 位测试手机号（不同号码 = 不同账号）' }); return; }
-    // 开发联调入口：code 形如 "dev:<手机号>"，由云函数 DEV_LOGIN 开关决定是否接受。
+    if (!/^1\d{10}$/.test(phone)) { this.setData({ error: '请输入 11 位手机号，不同号码代表不同身份' }); return; }
+    // 一个手机号同时决定两件事：devActor（这次算谁）和 dev:<手机号> 凭证（免微信手机号验证）。
+    // 换号即换身份，退出后用另一个号登录就能分饰客户 / 门店 / 管理员。
+    wx.setStorageSync('devActor', phone);
     await this.authorize({ detail: { code: 'dev:' + phone } });
   },
   async authorize(e) {

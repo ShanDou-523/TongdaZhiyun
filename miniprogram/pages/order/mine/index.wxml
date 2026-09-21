@@ -1,0 +1,5 @@
+<view class="page"><view class="eyebrow">MY ORDERS</view><view class="title">我的订单</view><view class="subtitle">每一单都能看到进度。</view>
+<button class="primary" bindtap="create">＋ 再下一单</button>
+<view class="card" wx:for="{{items}}" wx:key="_id"><view class="row"><view class="service-title">{{item.serviceName}}</view><view class="tag">{{item.statusText}}</view></view><view class="muted">{{item.items}}</view><view class="meta">取件：{{item.park}}{{item.parkDetail ? ' · ' + item.parkDetail : ''}}</view><view class="row"><view class="meta">{{item.time}}</view><view class="meta">{{item.delivery === 'runner' ? '飞毛腿 · ' + item.feeText : '自己送'}}</view></view><view class="meta" wx:if="{{item.runnerName}}">骑手：{{item.runnerName}}</view><button wx:if="{{item.canCancel}}" class="secondary small" data-id="{{item._id}}" bindtap="cancel">取消订单</button></view>
+<view class="empty" wx:if="{{!loading && !items.length}}">还没有订单<view></view>点上面的按钮，把要处理的东西交给我们。</view>
+<button wx:if="{{more}}" class="secondary" bindtap="load">加载更多</button><view class="loading" wx:if="{{loading}}">正在加载…</view><view class="error" wx:if="{{error}}">{{error}}</view></view>

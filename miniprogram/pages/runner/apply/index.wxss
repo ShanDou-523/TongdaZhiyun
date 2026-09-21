@@ -1,0 +1,3 @@
+.media{margin-top:8rpx}
+.shot{width:300rpx;height:200rpx;border-radius:16rpx;background:#eef1e9}
+.shot.empty{display:flex;align-items:center;justify-content:center;color:#8b958d;border:2rpx dashed #c3ccc0;background:#f7f8f4;font-size:26rpx}

@@ -1,0 +1,5 @@
+.thumbs{flex-wrap:wrap}
+.thumb{width:180rpx;height:180rpx;border-radius:16rpx;background:#eef1e9;margin:0 16rpx 16rpx 0}
+.thumb.add{display:flex;align-items:center;justify-content:center;font-size:52rpx;color:#8b958d;border:2rpx dashed #c3ccc0;background:#f7f8f4}
+.option{flex:1;text-align:center;padding:24rpx 12rpx;border-radius:16rpx;background:#f2f4ef;border:2rpx solid transparent;font-size:26rpx}
+.option.on{background:#e7f0e9;border-color:#285c47;color:#285c47;font-weight:600}

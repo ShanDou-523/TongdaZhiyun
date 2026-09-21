@@ -99,6 +99,18 @@ function call(action, data = {}, token = '') {
   if (action === 'me') return { user, store: state.stores[user.storeId] };
   if (action === 'logout') { delete state.sessions[token]; return {}; }
   if (action === 'profile.update') { checkContent(data.nickname); Object.assign(user, { nickname: text(data.nickname, 24, '昵称'), park: data.park, parkDetail: data.park === '其它' ? (data.parkDetail || '') : '', gender: data.gender }); state.users[user._id] = user; return { user }; }
+  // 与真实后端一致：客户可以自己换服务门店，只换归属、不动角色。
+  if (action === 'store.switch') {
+    need(user.role === 'customer', 'FORBIDDEN', '仅客户可更换服务门店');
+    const store = state.stores[text(data.storeId, 24, '门店')];
+    need(store && store.enabled, 'INVALID', '请选择正常营业的门店');
+    need(store._id !== user.storeId, 'INVALID', '这已经是你当前的服务门店');
+    const from = user.storeId;
+    user.storeId = store._id;
+    state.users[user._id] = user;
+    audit(user, 'store.switch', user._id, { from, to: store._id });
+    return { user };
+  }
   if (action === 'services.list') return { items: state.services.filter(s => s.enabled).sort(byTime) };
   if (action === 'banners.list') return { items: state.banners.filter(b => b.enabled).sort((a, b) => b.weight - a.weight) };
 
@@ -138,17 +150,38 @@ function call(action, data = {}, token = '') {
     return { message: post(box._id, user, content) };
   }
 
-  if (action === 'staff.customers') { need(isStaff, 'FORBIDDEN', '仅门店或管理员可操作'); return { items: mine().filter(u => u.role === 'customer').sort(byTime) }; }
+  if (action === 'staff.customers') {
+    need(isStaff, 'FORBIDDEN', '仅门店或管理员可操作');
+    const kw = typeof data.keyword === 'string' ? data.keyword.trim().toLowerCase() : '';
+    return { items: mine().filter(u => u.role === 'customer' && (!kw || String(u.nickname).toLowerCase().includes(kw) || String(u.phone).toLowerCase().includes(kw))).sort(byTime) };
+  }
   if (action === 'staff.notifications') { need(isStaff, 'FORBIDDEN', '仅门店或管理员可操作'); return { items: state.notices.filter(n => isAdmin || n.storeId === user.storeId).sort(byTime), readAt: 0, serverTime: Date.now() }; }
   if (action === 'staff.readNotifications') { need(isStaff, 'FORBIDDEN', '仅门店或管理员可操作'); return {}; }
 
-  if (action === 'admin.stores') { need(isAdmin, 'FORBIDDEN', '仅管理员可操作'); return { items: Object.values(state.stores).sort(byTime) }; }
+  if (action === 'admin.stores') {
+    need(isAdmin, 'FORBIDDEN', '仅管理员可操作');
+    const members = Object.values(state.users);
+    return { items: Object.values(state.stores).sort(byTime).map(s => ({ ...s, userCount: members.filter(u => u.storeId === s._id).length })) };
+  }
   if (action === 'admin.storeSave') {
     need(isAdmin, 'FORBIDDEN', '仅管理员可操作');
     const id = text(data.id, 24, '门店编号');
     const old = state.stores[id];
     state.stores[id] = { _id: id, name: text(data.name, 40, '门店名称'), enabled: data.enabled === true, createdAt: old ? old.createdAt : Date.now() };
     audit(user, 'store.save', id, { name: state.stores[id].name, enabled: state.stores[id].enabled });
+    return {};
+  }
+  // 与真实后端同一套规则：门店被账户、会话或注册提醒引用时不允许删除，引导改用「停用」。
+  if (action === 'admin.storeDelete') {
+    need(isAdmin, 'FORBIDDEN', '仅管理员可操作');
+    const id = text(data.id, 24, '门店编号');
+    const store = state.stores[id];
+    need(store, 'INVALID', '门店不存在或已被删除');
+    need(!Object.values(state.users).some(u => u.storeId === id), 'INVALID', '该门店下还有账户，请先在「账户」里把他们转到其他门店');
+    need(!Object.values(state.rooms).some(r => r.storeId === id), 'INVALID', '该门店还有历史会话，请改用「停用」以保留记录');
+    need(!state.notices.some(n => n.storeId === id), 'INVALID', '该门店还有注册提醒，请改用「停用」以保留记录');
+    delete state.stores[id];
+    audit(user, 'store.delete', id, { name: store.name });
     return {};
   }
   if (action === 'admin.userUpdate') {
