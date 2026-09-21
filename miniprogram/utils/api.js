@@ -1,7 +1,19 @@
+// 所有后端调用的唯一出口。页面里不要直接写 wx.cloud.callFunction。
+// mock 模式下自动切换到本地假数据层，页面代码无需任何改动。
+const config = require('../config');
+const mock = require('../mock/index');
+
+function session() { return wx.getStorageSync('session') || ''; }
+function clear() { wx.removeStorageSync('session'); getApp().globalData.user = null; }
+
 async function call(action, data = {}) {
-  if (!getApp().globalData.cloudReady) throw new Error('尚未连接云环境，请按部署说明配置 AppID 和 cloudEnv');
+  if (config.mock) {
+    try { return await mock.call(action, data, session()); }
+    catch (error) { if (error.code === 'AUTH') { clear(); wx.reLaunch({ url: '/pages/auth/index' }); } throw error; }
+  }
+  if (!getApp().globalData.cloudReady) throw new Error('尚未连接云环境，请按 docs/环境切换清单.md 配置 AppID 和 cloudEnv');
   let response;
-  try { response = await wx.cloud.callFunction({ name: 'api', data: { action, data, token: wx.getStorageSync('session') || '' } }); }
+  try { response = await wx.cloud.callFunction({ name: 'api', data: { action, data, token: session() } }); }
   catch (_) { throw new Error('无法连接服务，请检查网络、云环境及 api 云函数部署状态'); }
   const result = response.result;
   if (!result || !result.ok) {
@@ -11,7 +23,6 @@ async function call(action, data = {}) {
   }
   return result.data;
 }
-function clear() { wx.removeStorageSync('session'); getApp().globalData.user = null; }
 async function guard(roles) {
   if (!wx.getStorageSync('session')) { wx.reLaunch({ url: '/pages/auth/index' }); return null; }
   const result = await call('me');
