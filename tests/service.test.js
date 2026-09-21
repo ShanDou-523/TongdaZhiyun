@@ -305,3 +305,20 @@ test('content security: msgSecCheck verdicts gate chat, profile and registration
   const proom=await plain.call('p',p.token,'chat.open',{});
   await plain.call('p',p.token,'chat.send',{roomId:proom.roomId,content:'任何内容都放行',requestId:'x1'});
 });
+
+
+test('dorm room persists across login and profile edits, is staff-visible, and supports legacy users',async()=>{
+ const f=await fixture();const c=await f.register('c','13800000001',{dormRoom:' 3栋502 '});
+ assert.equal(c.user.dormRoom,'3栋502');
+ const again=await f.call('c','','auth.phone',{mode:'login',consent:true,code:'13800000001'});
+ assert.equal(again.user.dormRoom,'3栋502');
+ const fields={nickname:'邻居',park:'一园区',gender:'不愿透露'};
+ const unchanged=await f.call('c',again.token,'profile.update',fields);assert.equal(unchanged.user.dormRoom,'3栋502');
+ const changed=await f.call('c',again.token,'profile.update',{...fields,dormRoom:'A-601'});assert.equal(changed.user.dormRoom,'A-601');
+ const staff=await f.register('s','13800000002');await f.provision('s','store');
+ assert.equal((await f.call('s',staff.token,'staff.customers')).items.find(x=>x._id===c.user._id).dormRoom,'A-601');
+ const cleared=await f.call('c',again.token,'profile.update',{...fields,dormRoom:'   '});assert.equal(cleared.user.dormRoom,'');
+ assert.equal(staff.user.dormRoom,'');
+ for(const invalid of ['x'.repeat(21),502,null])await fails(f.call('c',again.token,'profile.update',{...fields,dormRoom:invalid}),'INVALID');
+ assert.equal((await f.call('c',again.token,'me')).user.dormRoom,'');
+});

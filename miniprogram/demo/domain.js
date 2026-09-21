@@ -13,12 +13,14 @@ function profile(input) {
   requireThat(['男','女','不愿透露'].includes(input.gender), 'INVALID', '请选择性别');
   // 选「其它」时必须补充自填位置（如某楼栋）；改回普通园区时清空，避免残留旧值。
   const parkDetail = input.park === '其它' ? text(input.parkDetail, 20, '所在位置') : '';
-  return { nickname: text(input.nickname, 24, '昵称'), park: input.park, parkDetail, gender: input.gender };
+  const room = input.dormRoom;
+  requireThat(room === undefined || (typeof room === 'string' && room.trim().length <= 20), 'INVALID', '宿舍号须为20字以内的文本');
+  return { ...(room === undefined ? {} : { dormRoom: room.trim() }), nickname: text(input.nickname, 24, '昵称'), park: input.park, parkDetail, gender: input.gender };
 }
 function publicUser(user) {
   if (!user) return null;
-  const { _id, nickname, phone, park, parkDetail, gender, role, storeId, enabled, createdAt } = user;
-  return { _id, nickname, phone, park, parkDetail, gender, role, storeId, enabled, createdAt };
+  const { _id, nickname, phone, park, parkDetail, dormRoom = '', gender, role, storeId, enabled, createdAt } = user;
+  return { _id, nickname, phone, park, parkDetail, dormRoom, gender, role, storeId, enabled, createdAt };
 }
 function allowedConversation(user, room) {
   return !!room && ((user.role === 'customer' && room.customerId === user._id) || (user.role === 'store' && room.storeId === user.storeId));

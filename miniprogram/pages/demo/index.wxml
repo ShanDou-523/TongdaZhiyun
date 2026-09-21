@@ -18,7 +18,7 @@
       <view class="label">所属门店</view><picker range="{{stores}}" range-key="name" value="{{storeIndex}}" data-key="storeIndex" bindchange="select"><view class="field">{{stores.length ? stores[storeIndex].name : '暂无启用门店'}} ⌄</view></picker>
       <view class="label">所在园区</view><picker range="{{parks}}" value="{{parkIndex}}" data-key="parkIndex" bindchange="select"><view class="field">{{parks[parkIndex]}} ⌄</view></picker>
       <input wx:if="{{parks[parkIndex] === '其它'}}" class="field" value="{{parkDetail}}" bindinput="parkDetail" maxlength="20" placeholder="填写具体园区或楼栋"/>
-      <view class="label">性别</view><picker range="{{genders}}" value="{{genderIndex}}" data-key="genderIndex" bindchange="select"><view class="field">{{genders[genderIndex]}} ⌄</view></picker>
+      <view class="label">宿舍号（选填）</view><input class="field" value="{{dormRoom}}" maxlength="20" placeholder="例如：3栋502 / A-502" bindinput="dormRoom"/><view class="label">性别</view><picker range="{{genders}}" value="{{genderIndex}}" data-key="genderIndex" bindchange="select"><view class="field">{{genders[genderIndex]}} ⌄</view></picker>
       <button class="primary" bindtap="register" disabled="{{busy || !nickname || !stores.length}}">创建测试客户并进入</button>
     </view>
     <view class="section-title">建议这样测试</view>

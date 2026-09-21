@@ -1,7 +1,7 @@
 const demo = require('../../demo/index');
 const { parks, genders, roles } = require('../../utils/constants');
 Page({
-  data: { accounts: [], stores: [], error: '', busy: false, available: false, nickname: '', parkDetail: '', parks, genders, parkIndex: 0, genderIndex: 0, storeIndex: 0 },
+  data: { accounts: [], stores: [], error: '', busy: false, available: false, nickname: '', parkDetail: '', dormRoom: '', parks, genders, parkIndex: 0, genderIndex: 0, storeIndex: 0 },
   onShow() { return this.load(); },
   async load() {
     const available = demo.available();
@@ -23,6 +23,7 @@ Page({
   },
   input(e) { this.setData({nickname:e.detail.value}); },
   parkDetail(e) { this.setData({parkDetail:e.detail.value}); },
+  dormRoom(e) { this.setData({dormRoom:e.detail.value}); },
   select(e) { this.setData({[e.currentTarget.dataset.key]:Number(e.detail.value)}); },
   async register() {
     if(this.data.busy)return;
@@ -30,7 +31,7 @@ Page({
     if(!store){this.setData({error:'请先启用一家演示门店，或重置演示数据'});return;}
     this.setData({busy:true,error:''});
     try {
-      getApp().globalData.user=await demo.register({nickname:this.data.nickname,park:parks[this.data.parkIndex],parkDetail:this.data.parkDetail,gender:genders[this.data.genderIndex],storeId:store._id});
+      getApp().globalData.user=await demo.register({nickname:this.data.nickname,park:parks[this.data.parkIndex],parkDetail:this.data.parkDetail,dormRoom:this.data.dormRoom,gender:genders[this.data.genderIndex],storeId:store._id});
       wx.reLaunch({url:'/pages/home/index'});
     } catch(e){this.setData({error:e.message});}
     finally{this.setData({busy:false});}

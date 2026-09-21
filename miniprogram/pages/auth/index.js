@@ -2,7 +2,7 @@ const api = require('../../utils/api');
 const config = require('../../config');
 const { parks, genders } = require('../../utils/constants');
 Page({
-  data: { mode: 'register', parks, genders, parkIndex: 0, genderIndex: 0, nickname: '', stores: [], storeIndex: 0, consent: false, busy: false, error: '', loading: false, demoAvailable: false, devLogin: false, devPhone: '13000000001', parkDetail: '' },
+  data: { mode: 'register', parks, genders, parkIndex: 0, genderIndex: 0, nickname: '', stores: [], storeIndex: 0, consent: false, busy: false, error: '', loading: false, demoAvailable: false, devLogin: false, devPhone: '13000000001', parkDetail: '', dormRoom: '' },
   onLoad(options = {}) { getApp().captureEntry({ query: options }); const available = api.demoAvailable(); this.setData({demoAvailable:available, devLogin:this.developmentLoginAvailable()}); if(available && options.real !== '1'){wx.redirectTo({url:'/pages/demo/index'});return;} this.load(); },
   demo() { wx.reLaunch({url:'/pages/demo/index'}); },
   async load() {
@@ -18,6 +18,7 @@ Page({
   mode(e) { if (!this.data.busy) this.setData({ mode: e.currentTarget.dataset.mode, error: '' }); },
   nickname(e) { this.setData({ nickname: e.detail.value }); },
   parkDetail(e) { this.setData({ parkDetail: e.detail.value }); },
+  dormRoom(e) { this.setData({dormRoom:e.detail.value}); },
   select(e) { this.setData({ [e.currentTarget.dataset.key]: Number(e.detail.value) }); },
   consent(e) { this.setData({ consent: e.detail.value.includes('yes') }); },
   privacy() { wx.navigateTo({ url: '/pages/privacy/index' }); },
@@ -54,7 +55,7 @@ Page({
     if (d.mode === 'register' && parks[d.parkIndex] === '其它' && !d.parkDetail.trim()) { this.setData({error:'选择「其它」时，请填写具体园区或楼栋'}); return; }
     this.setData({ busy: true, error: '' });
     try {
-      const result = await api.call('auth.phone', { code: detail.code, mode: d.mode, consent: d.consent, nickname: d.nickname, park: parks[d.parkIndex], parkDetail: parks[d.parkIndex] === '其它' ? d.parkDetail : '', gender: genders[d.genderIndex], storeId: d.stores[d.storeIndex] && d.stores[d.storeIndex]._id });
+      const result = await api.call('auth.phone', { code: detail.code, mode: d.mode, consent: d.consent, nickname: d.nickname, park: parks[d.parkIndex], parkDetail: parks[d.parkIndex] === '其它' ? d.parkDetail : '', dormRoom: d.dormRoom, gender: genders[d.genderIndex], storeId: d.stores[d.storeIndex] && d.stores[d.storeIndex]._id });
       wx.setStorageSync('session', result.token); getApp().globalData.user = result.user;
       wx.switchTab({ url: '/pages/home/index' });
     } catch (error) { this.setData({ error: error.message, ...(error.code === 'NOT_REGISTERED' ? { mode: 'register' } : {}) }); }

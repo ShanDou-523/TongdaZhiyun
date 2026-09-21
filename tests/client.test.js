@@ -188,3 +188,14 @@ test('banner retry reuses uploaded file after failed save',async()=>{
   Object.assign(p.data,{demoMode:false,bannerTitle:'活动',bannerSubtitle:'欢迎',bannerWeight:50,bannerMediaType:'image',bannerMedia:'wxfile://tmp/a.jpg'});
   await p.saveBanner();assert.equal(p.data.bannerMedia,'cloud://env/banners/a.jpg');await p.saveBanner();assert.equal(uploads,1);assert.equal(calls,2);
 });
+
+
+test('registration and profile form submit and restore dorm room',async()=>{
+ let data;const auth=page('auth',{call:async(a,d)=>{data=d;return {token:'t',user:{}};}},{setStorageSync(){},switchTab(){}});
+ Object.assign(auth.data,{consent:true,nickname:'邻居',stores:[{_id:'main'}]});auth.dormRoom({detail:{value:'3栋502'}});
+ await auth.authorize({detail:{code:'phone'}});assert.equal(data.dormRoom,'3栋502');
+ const user={nickname:'邻居',park:'一园区',gender:'男',dormRoom:'3栋502'};
+ const profile=page('profile',{guard:async()=>({user}),call:async(a,d)=>{data=d;return {user:{...user,...d}};}},{showToast(){}});
+ await profile.load();assert.equal(profile.data.dormRoom,'3栋502');
+ profile.input({currentTarget:{dataset:{key:'dormRoom'}},detail:{value:'A-601'}});await profile.save();assert.equal(data.dormRoom,'A-601');
+});

@@ -194,3 +194,9 @@ test('single-store demo supports service and banner CRUD across roles and reject
 test('demo registration supports other-campus location using the cloud validation rules',async()=>{
  const f=fixture();const user=await f.demo.register({nickname:'新邻居',park:'其它',parkDetail:'测试楼',gender:'不愿透露',storeId:'main'});assert.equal(user.parkDetail,'测试楼');
 });
+
+
+test('demo dorm room uses shared persistence and validation',async()=>{
+ const f=fixture();const user=await f.demo.register({nickname:'新同学',park:'一园区',gender:'不愿透露',storeId:'main',dormRoom:'5栋101'});
+ assert.equal(user.dormRoom,'5栋101');f.demo.leave();await f.demo.login(user._id);assert.equal((await f.demo.call('me')).user.dormRoom,'5栋101');
+});
