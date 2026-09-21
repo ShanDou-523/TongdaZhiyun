@@ -574,3 +574,17 @@ test('dorm room persists across login and profile edits, is staff-visible, and s
  for(const invalid of ['x'.repeat(21),502,null])await fails(f.call('c',again.token,'profile.update',{...fields,dormRoom:invalid}),'INVALID');
  assert.equal((await f.call('c',again.token,'me')).user.dormRoom,'');
 });
+
+test('delivery mode constrains acceptance and taking, not just the shared status graph',async()=>{
+ const f=await fixture();const admin=await f.register('admin','13800000001');const serviceId=await withService(f.call,admin);const customer=await f.register('c','13800000002');const shop=await f.register('s','13800000003');await f.provision('s','store');
+ const runner=await f.register('r','13800000004');const u=await f.repo.get('users',runner.user._id);await f.repo.put('users',u._id,{...u,runner:{status:'approved'}});
+ const create=delivery=>f.call('c',customer.token,'order.create',{serviceId,items:'衣服',park:'一园区',parkDetail:'3栋502',contact:'13800000002',delivery});
+ const r=await create('runner');
+ for(const status of ['submitted','runnerTaken','picked']){
+  const o=await f.repo.get('orders',r.id);await f.repo.put('orders',r.id,{...o,status});
+  for(const [who,token] of [['s',shop.token],['admin',admin.token]])await fails(f.call(who,token,'order.accept',{id:r.id}),'INVALID');
+  assert.equal((await f.repo.get('orders',r.id)).status,status);
+ }
+ const o=await f.repo.get('orders',r.id);await f.repo.put('orders',r.id,{...o,status:'delivered'});await f.call('s',shop.token,'order.accept',{id:r.id});assert.equal((await f.repo.get('orders',r.id)).status,'serving');
+ const self=await create('self');await fails(f.call('r',runner.token,'order.take',{id:self.id}),'INVALID');assert.equal((await f.repo.get('orders',self.id)).runnerId,'');await f.call('s',shop.token,'order.accept',{id:self.id});
+});

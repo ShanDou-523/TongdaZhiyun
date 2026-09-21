@@ -199,3 +199,16 @@ test('registration and profile form submit and restore dorm room',async()=>{
  await profile.load();assert.equal(profile.data.dormRoom,'3栋502');
  profile.input({currentTarget:{dataset:{key:'dormRoom'}},detail:{value:'A-601'}});await profile.save();assert.equal(data.dormRoom,'A-601');
 });
+
+test('order and runner media stay local in demo and use cloud only in cloud mode',async()=>{
+ for(const demoMode of [true,false])for(const name of ['order/create','runner/apply']){
+  let uploads=0,selection;const p=page(name,{guard:async()=>({demoMode,user:{phone:'13800000001',park:'一园区'}}),call:async a=>a==='services.list'?{items:[]}:{runnerFee:300}},
+  {getAccountInfoSync:()=>({miniProgram:{envVersion:'develop'}}),chooseMedia:opts=>{selection=opts;},cloud:{uploadFile:async()=>{uploads++;return {fileID:'cloud://test/photo'};}}});
+  await p.load();if(name==='order/create')await p.addPhoto();else await p.pick({currentTarget:{dataset:{key:'idCard'}}});
+  await selection.success({tempFiles:[{tempFilePath:'wxfile://tmp/photo.jpg'}]});
+  assert.equal(uploads,demoMode?0:1);assert.equal(name==='order/create'?p.data.media[0]:p.data.idCard,demoMode?'wxfile://tmp/photo.jpg':'cloud://test/photo');
+ }
+});
+test('runner placeholder photo control is unavailable in release cloud mode',async()=>{
+ const p=page('runner/apply',{guard:async()=>({demoMode:false,user:{}})},{getAccountInfoSync:()=>({miniProgram:{envVersion:'release'}})});await p.load();p.skipPhotos();assert.equal(p.data.devLogin,false);assert.equal(p.data.idCard,'');
+});

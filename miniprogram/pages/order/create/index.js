@@ -1,13 +1,13 @@
 const api = require('../../../utils/api');
-const config = require('../../../config');
 const { parks } = require('../../../utils/constants');
 Page({
- data: { services: [], serviceIndex: 0, items: '', note: '', parks, parkIndex: 0, parkDetail: '', contact: '', media: [], delivery: 'self', runnerFee: 0, loading: true, busy: false, error: '' },
+ data: { demoMode: false, services: [], serviceIndex: 0, items: '', note: '', parks, parkIndex: 0, parkDetail: '', contact: '', media: [], delivery: 'self', runnerFee: 0, loading: true, busy: false, error: '' },
  onLoad(options) { this.preset = (options && options.serviceId) || ''; this.load(); },
  async load() {
   this.setData({ loading: true, error: '' });
   try {
    const me = await api.guard(['customer']); if (!me) return;
+   this.setData({demoMode:!!me.demoMode});
    const list = await api.call('services.list');
    const conf = await api.call('order.config');
    const i = list.items.findIndex(x => x._id === this.preset);
@@ -26,7 +26,7 @@ Page({
  delivery(e) { this.setData({ delivery: e.currentTarget.dataset.value }); },
  // 照片是可选项：工具或隐私声明没配好时不该挡住下单，失败原因要如实显示而不是静默。
  async addPhoto() {
-  if (this.data.busy) return;
+  if (this.data.busy || this.data.loading) return;
   if (this.data.media.length >= 3) { this.setData({ error: '最多上传 3 张照片' }); return; }
   if (!wx.chooseMedia) { this.setData({ error: '当前工具版本不支持选择照片，可以先跳过照片直接下单' }); return; }
   wx.chooseMedia({ count: 3 - this.data.media.length, mediaType: ['image'], sourceType: ['album'], sizeType: ['compressed'],
@@ -37,7 +37,7 @@ Page({
     try {
      const added = [];
      for (const file of files) {
-      if (config.mock) { added.push(file); continue; }
+      if (this.data.demoMode) { added.push(file); continue; }
       const ext = (file.match(/\.[a-z0-9]+$/i) || ['.jpg'])[0];
       const up = await wx.cloud.uploadFile({ cloudPath: `orders/${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`, filePath: file });
       added.push(up.fileID);

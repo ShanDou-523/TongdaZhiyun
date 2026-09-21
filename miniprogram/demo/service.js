@@ -319,7 +319,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       const contact = text(data.contact, 20, '联系电话'); need(/^1\d{10}$/.test(contact), 'INVALID', '联系电话格式不正确');
       need(['self','runner'].includes(data.delivery), 'INVALID', '请选择配送方式');
       // 照片只收云存储 fileID，最多 3 张；其它形状一律丢弃，避免把外链塞进订单。
-      const media = (Array.isArray(data.media) ? data.media : []).filter(x => typeof x === 'string' && x.startsWith('cloud://')).slice(0, 3);
+      const media = (Array.isArray(data.media) ? data.media : []).filter(x => typeof x === 'string' && (x.startsWith('cloud://') || (allowLocalMedia && ['wxfile://','http://tmp/','https://tmp/'].some(prefix => x.startsWith(prefix))))).slice(0, 3);
       const now = clock(), id = crypto.randomBytes(12).toString('hex');
       const order = { _id: id, customerId: fresh._id, customerName: fresh.nickname, storeId: store._id, serviceId: service._id, serviceName: service.name, items, note, park, parkDetail, contact, media, delivery: data.delivery, fee: data.delivery === 'runner' ? await runnerFee(tx) : 0, runnerId: '', runnerName: '', status: 'submitted', createdAt: now, updatedAt: now };
       await tx.put('orders', id, order);
@@ -345,6 +345,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       const order = await tx.get('orders', text(data.id, 40, '订单'));
       need(order, 'INVALID', '订单不存在或已被删除');
       need(fresh.role === 'admin' || order.storeId === fresh.storeId, 'FORBIDDEN', '这不是本门店的订单');
+      need(order.delivery === 'self' || (order.delivery === 'runner' && order.status === 'delivered'), 'INVALID', '这单要等飞毛腿送到门店后才能接单');
       need(canOrderTransition(order.status, 'serving'), 'INVALID', order.delivery === 'runner' && order.status !== 'delivered' ? '这单要等飞毛腿送到门店后才能接单' : '当前状态不能接单');
       const saved = { ...order, status: 'serving', updatedAt: clock() };
       await tx.put('orders', order._id, saved);
@@ -383,6 +384,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       need(fresh.runner?.status === 'approved', 'FORBIDDEN', '先完成飞毛腿认证才能接单');
       const order = await tx.get('orders', text(data.id, 40, '订单'));
       need(order, 'INVALID', '订单不存在或已被删除');
+      need(order.delivery === 'runner', 'INVALID', '自送订单不能由飞毛腿接单');
       need(canOrderTransition(order.status, 'runnerTaken'), 'INVALID', '这单已经被别人接走了');
       const saved = { ...order, status: 'runnerTaken', runnerId: fresh._id, runnerName: fresh.nickname, updatedAt: clock() };
       await tx.put('orders', order._id, saved);
@@ -414,7 +416,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       const studentCardPhoto = text(data.studentCardPhoto, 300, '学生证照片');
       // 正常环境只认云存储 fileID。开发期（DEV_LOGIN=1）额外放行 dev: 占位符——隐私声明没配好前
       // 选不了照片，不放行就整条跑腿流程没法联调。生产环境不设 DEV_LOGIN，这条分支不存在。
-      const isPhoto = file => file.startsWith('cloud://') || (devLogin && file.startsWith('dev:'));
+      const isPhoto = file => file.startsWith('cloud://') || (devLogin && file.startsWith('dev:')) || (allowLocalMedia && ['wxfile://','http://tmp/','https://tmp/','dev:'].some(prefix => file.startsWith(prefix)));
       need(isPhoto(idCardPhoto) && isPhoto(studentCardPhoto), 'INVALID', '证件照片必须先上传到云存储');
       const runner = { status: 'pending', realName, schoolId, idCardPhoto, studentCardPhoto, appliedAt: clock(), reviewedAt: 0, reason: '' };
       const saved = { ...fresh, runner, updatedAt: clock() };

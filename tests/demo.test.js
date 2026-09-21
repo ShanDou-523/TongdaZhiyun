@@ -200,3 +200,14 @@ test('demo dorm room uses shared persistence and validation',async()=>{
  const f=fixture();const user=await f.demo.register({nickname:'新同学',park:'一园区',gender:'不愿透露',storeId:'main',dormRoom:'5栋101'});
  assert.equal(user.dormRoom,'5栋101');f.demo.leave();await f.demo.login(user._id);assert.equal((await f.demo.call('me')).user.dormRoom,'5栋101');
 });
+
+test('demo order and runner application retain local photos without cloud uploads',async()=>{
+ const f=fixture();await f.login('customer_a');
+ const order=await f.demo.call('order.create',{serviceId:'laundry_intro',items:'衣服',park:'一园区',parkDetail:'3栋502',contact:'13000000001',delivery:'runner',media:['wxfile://tmp/order.jpg']});
+ assert.deepEqual(order.order.media,['wxfile://tmp/order.jpg']);
+ await f.demo.call('runner.apply',{realName:'测试同学',schoolId:'test001',idCardPhoto:'wxfile://tmp/id.jpg',studentCardPhoto:'http://tmp/student.jpg'});
+ await f.login('admin');await f.demo.call('admin.runnerReview',{id:uid('demo_customer_a'),result:'approved'});
+ await f.login('customer_a');await f.demo.call('order.take',{id:order.id});await f.demo.call('order.runnerAdvance',{id:order.id,step:'picked'});await f.demo.call('order.runnerAdvance',{id:order.id,step:'delivered'});
+ await f.login('staff_a');await f.demo.call('order.accept',{id:order.id});await f.demo.call('order.finish',{id:order.id});
+ assert.equal((await f.demo.call('order.storeList')).items.find(o=>o._id===order.id).status,'done');
+});
