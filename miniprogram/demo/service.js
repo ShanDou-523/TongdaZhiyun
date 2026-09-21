@@ -1,4 +1,6 @@
-const crypto = require('crypto');
+// Generated from cloudfunctions/api by scripts/sync-demo.js. Do not edit.
+// Local demo only; production authentication remains in the cloud function.
+const crypto = require('./crypto');
 const { hash, uid, CATEGORIES, PARKS, BusinessError, requireThat: need, text, profile, publicUser, publicOrder, canOrderTransition, allowedConversation } = require('./domain');
 const INSPECT = ['users','stores','conversations','messages','notifications','services','banners','orders','auditLogs'];
 // 广告素材类型：none 纯文案；image 海报图；video 短视频。素材文件存云存储，库里只存 fileID。

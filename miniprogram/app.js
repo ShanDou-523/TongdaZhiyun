@@ -3,7 +3,6 @@ App({
   globalData: { user: null, entryStore: '', cloudReady: false },
   onLaunch(options) {
     if (wx.cloud && config.cloudEnv) { wx.cloud.init({ env: config.cloudEnv, traceUser: false }); this.globalData.cloudReady = true; }
-    if (config.mock && typeof console !== 'undefined') console.warn('[园邻] 本地演示模式：接口走 miniprogram/mock/ 假数据，不会调用云函数。上线前请把 config.js 的 mock 改为 false。');
     this.captureEntry(options);
   },
   onShow(options) { this.captureEntry(options); },

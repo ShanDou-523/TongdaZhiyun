@@ -78,7 +78,7 @@ test('banners: admin CRUD, weight ordering, only enabled reach the client home p
   const actions=Object.values(f.repo.data.auditLogs).map(x=>x.action);
   assert.ok(actions.includes('banner.save')&&actions.includes('banner.delete'));
 });
-test('banners media: image/video fileID validated, old files cleaned on replace and delete',async()=>{
+test('banners media: image/video fileID validated, shared assets retained on replace and delete',async()=>{
   const f=await fixture(),admin=await f.register('admin','13800000001');
   await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'x',subtitle:'y',weight:1,enabled:true,mediaType:'gif'}),'INVALID');
   await fails(f.call('admin',admin.token,'admin.bannerSave',{title:'x',subtitle:'y',weight:1,enabled:true,mediaType:'image'}),'INVALID');
@@ -88,12 +88,12 @@ test('banners media: image/video fileID validated, old files cleaned on replace 
   assert.equal(saved.mediaType,'image');assert.equal(saved.mediaFileID,'cloud://env/banners/a.png');
   assert.deepEqual(f.deletedFiles,[],'首次保存不清理任何文件');
   await f.call('admin',admin.token,'admin.bannerSave',{id:a.id,title:'海报',subtitle:'新用户注册送 10 元',weight:100,enabled:true,mediaType:'video',mediaFileID:'cloud://env/banners/b.mp4'});
-  assert.deepEqual(f.deletedFiles,['cloud://env/banners/a.png'],'替换素材后旧文件被清理');
+  assert.deepEqual(f.deletedFiles,[],'素材引用删除不触发物理文件删除');
   await f.call('admin',admin.token,'admin.bannerSave',{id:a.id,title:'海报',subtitle:'新用户注册送 10 元',weight:100,enabled:true,mediaType:'none'});
-  assert.deepEqual(f.deletedFiles,['cloud://env/banners/a.png','cloud://env/banners/b.mp4'],'改回纯文案后视频被清理');
+  assert.deepEqual(f.deletedFiles,[],'素材引用删除不触发物理文件删除');
   const c=await f.call('admin',admin.token,'admin.bannerSave',{title:'视频',subtitle:'x',weight:1,enabled:true,mediaType:'video',mediaFileID:'cloud://env/banners/c.mp4'});
   await f.call('admin',admin.token,'admin.bannerDelete',{id:c.id});
-  assert.deepEqual(f.deletedFiles,['cloud://env/banners/a.png','cloud://env/banners/b.mp4','cloud://env/banners/c.mp4'],'删除广告后素材文件被清理');
+  assert.deepEqual(f.deletedFiles,[],'素材引用删除不触发物理文件删除');
 });
 test('park 其它 requires a short free-text detail; normal parks ignore it', async () => {
   const f = await fixture();
@@ -185,7 +185,7 @@ test('admin role changes revoke sessions, cannot grant admin or modify self; aud
 test('disabled accounts and stores deny access; notification reads belong to each employee',async()=>{
   const f=await fixture(),a=await f.register('a','13800000001'),s=await f.register('s','13800000002');await f.provision('s','store');
   const r=await f.call('s',s.token,'staff.notifications');assert.equal(r.items.length,2);
-  await f.call('s',s.token,'staff.readNotifications',{at:r.serverTime});assert.equal((await f.call('s',s.token,'staff.notifications')).readAt,r.serverTime);
+  await f.call('s',s.token,'staff.readNotifications',{ids:r.items.map(n=>n._id)});assert((await f.call('s',s.token,'staff.notifications')).items.every(n=>!n.unread));
   await f.repo.put('stores','main',{name:'测试',enabled:false});await fails(f.call('s',s.token,'me'),'FORBIDDEN');await fails(f.call('a',a.token,'chat.open'),'FORBIDDEN');
   const u=await f.repo.get('users',a.user._id);await f.repo.put('users',u._id,{...u,enabled:false});await fails(f.register('a','13800000001'),'FORBIDDEN');
 });
@@ -204,6 +204,47 @@ test('storage failure during registration rolls back user, phone claim and notif
   const f=await fixture();const put=f.repo.put.bind(f.repo);f.repo.put=async(c,id,data)=>{if(c==='users')throw new Error('storage failure');return put(c,id,data);};
   await assert.rejects(f.register('a','13800000001'),/storage failure/);assert.equal(Object.keys(f.repo.data.phoneClaims||{}).length,0);assert.equal(Object.keys(f.repo.data.notifications||{}).length,0);
 });
+
+test('notification reads affect only selected ids, preserving older and same-time unseen notices',async()=>{
+  const f=await fixture(),s=await f.register('s','13800000001');await f.provision('s','store');
+  for(let i=0;i<50;i++)await f.repo.put('notifications','n'+i,{storeId:'main',createdAt:1800000001000+i});
+  const first=await f.call('s',s.token,'staff.notifications');
+  await f.repo.put('notifications','concurrent',{storeId:'main',createdAt:first.items[0].createdAt});
+  await f.call('s',s.token,'staff.readNotifications',{ids:first.items.map(n=>n._id)});
+  const all=[];
+  for(let page=0;page<3;page++)all.push(...(await f.call('s',s.token,'staff.notifications',{page})).items);
+  assert.equal(all.filter(n=>!n.unread).length,20);
+  assert.equal(all.find(n=>n._id==='n0').unread,true);
+  assert.equal(all.find(n=>n._id==='concurrent').unread,true);
+  await f.call('s',s.token,'staff.readNotifications',{ids:first.items.map(n=>n._id)});
+  assert.equal(Object.keys(f.repo.data.notificationReads).length,20);
+});
+
+test('notification reads are employee-specific and cannot target another store',async()=>{
+  const f=await fixture(),s=await f.register('s','13800000001'),t=await f.register('t','13800000002');
+  await f.provision('s','store');await f.provision('t','store');
+  await f.repo.put('notifications','foreign',{storeId:'other',createdAt:1800000001000});
+  const items=(await f.call('s',s.token,'staff.notifications')).items;
+  await fails(f.call('s',s.token,'staff.readNotifications',{ids:[items[0]._id,'foreign']}),'FORBIDDEN');
+  assert.equal(Object.keys(f.repo.data.notificationReads||{}).length,0);
+  await f.call('s',s.token,'staff.readNotifications',{ids:[items[0]._id]});
+  assert((await f.call('t',t.token,'staff.notifications')).items.every(n=>n.unread));
+  await fails(f.call('s',s.token,'staff.readNotifications',{at:1800000000000}),'INVALID');
+  await fails(f.call('s',s.token,'staff.readNotifications',{ids:[]}),'INVALID');
+  await fails(f.call('s',s.token,'staff.readNotifications',{ids:Array(21).fill(items[0]._id)}),'INVALID');
+});
+
+test('legacy notification timestamps remain readable without being advanced by new reads',async()=>{
+  const f=await fixture(),s=await f.register('s','13800000001');await f.provision('s','store');
+  await f.repo.put('notificationReads',s.user._id,{readAt:1800000000000});
+  await f.repo.put('notifications','later',{storeId:'main',createdAt:1800000001000});
+  const items=(await f.call('s',s.token,'staff.notifications')).items;
+  assert.equal(items.find(n=>n._id==='later').unread,true);
+  assert.equal(items.find(n=>n._id!=='later').unread,false);
+  await f.call('s',s.token,'staff.readNotifications',{ids:['later']});
+  assert.equal((await f.repo.get('notificationReads',s.user._id)).readAt,1800000000000);
+});
+
 test('dev login switch: off by default; when on, skips phone exchange but keeps every other check',async()=>{
   // 默认关闭（fixture 未传 devLogin）："dev:" 凭证不被特殊对待，走正常手机号校验并被拒绝。
   const f=await fixture();
@@ -516,4 +557,20 @@ test('runner apply: dev placeholder photos are only accepted when dev login is o
 
   const bad=await reg('baduser','13800000006','王五');
   await fails(call('baduser',bad.token,'runner.apply',{realName:'王五',schoolId:'1',idCardPhoto:'http://example.com/a.jpg',studentCardPhoto:'dev:stu'}),'INVALID');
+});
+
+test('dorm room persists across login and profile edits, is staff-visible, and supports legacy users',async()=>{
+ const f=await fixture();const c=await f.register('c','13800000001',{dormRoom:' 3栋502 '});
+ assert.equal(c.user.dormRoom,'3栋502');
+ const again=await f.call('c','','auth.phone',{mode:'login',consent:true,code:'13800000001'});
+ assert.equal(again.user.dormRoom,'3栋502');
+ const fields={nickname:'邻居',park:'一园区',gender:'不愿透露'};
+ const unchanged=await f.call('c',again.token,'profile.update',fields);assert.equal(unchanged.user.dormRoom,'3栋502');
+ const changed=await f.call('c',again.token,'profile.update',{...fields,dormRoom:'A-601'});assert.equal(changed.user.dormRoom,'A-601');
+ const staff=await f.register('s','13800000002');await f.provision('s','store');
+ assert.equal((await f.call('s',staff.token,'staff.customers')).items.find(x=>x._id===c.user._id).dormRoom,'A-601');
+ const cleared=await f.call('c',again.token,'profile.update',{...fields,dormRoom:'   '});assert.equal(cleared.user.dormRoom,'');
+ assert.equal(staff.user.dormRoom,'');
+ for(const invalid of ['x'.repeat(21),502,null])await fails(f.call('c',again.token,'profile.update',{...fields,dormRoom:invalid}),'INVALID');
+ assert.equal((await f.call('c',again.token,'me')).user.dormRoom,'');
 });

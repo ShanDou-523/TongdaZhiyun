@@ -34,16 +34,19 @@ const service = createService({
   // 联调环境（个人主体）设它打通注册登录；公司生产环境绝不设置此变量。
   devLogin: process.env.DEV_LOGIN === '1',
   async phoneExchange(code) { return (await cloud.openapi.phonenumber.getPhoneNumber({ code })).phoneInfo; },
+  // 跑腿资质审核通过后要删掉证件照原件（留存最小化），这里注入云存储删除能力。
+  async storageDelete(fileID) { await cloud.deleteFile({ fileList: [fileID] }); },
   // 内容安全检测（UGC 强制要求）。返回 suggest：pass 放行，review/risky 由 service 层拦截。
-  // 接口不可用（网络/配额异常）时 fail-open 放行并记日志——宁可漏检一条，不阻断全体正常聊天；
-  // 违规内容的兜底靠管理后台审计。绝不把接口细节抛给客户端。
+  // 检测失败或缺少有效结论时不提交内容，保留用户输入供稍后重试。
   async msgCheck(content, scene, openid) {
     try {
       const result = await cloud.openapi.security.msgSecCheck({ content, version: 2, scene, openid });
-      return (result.result && result.result.suggest) || 'pass';
+      const verdict = result.result && result.result.suggest;
+      if (!['pass','review','risky'].includes(verdict)) throw new Error('INVALID_VERDICT');
+      return verdict;
     } catch (error) {
       console.warn('msgSecCheck unavailable:', String(error.errCode || error.code || 'UNKNOWN'));
-      return 'pass';
+      throw new BusinessError('CONTENT_UNAVAILABLE', '内容检测暂不可用，请稍后重试；管理员请检查云调用权限与额度');
     }
   },
   async qrCode(storeId, version) {
@@ -51,9 +54,7 @@ const service = createService({
     if (!result.buffer || (result.errCode && result.errCode !== 0)) throw new BusinessError('QRCODE', '生成失败，请检查小程序版本、发布状态和云调用权限');
     const upload = await cloud.uploadFile({ cloudPath: `entry-codes/${storeId}-${version}-${Date.now()}.png`, fileContent: result.buffer });
     return upload.fileID;
-  },
-  // 广告素材替换/删除后，清理云存储里的旧海报/视频文件，避免越积越多。
-  async storageDelete(fileID) { await cloud.deleteFile({ fileList: [fileID] }); }
+  }
 });
 exports.main = async event => {
   try {

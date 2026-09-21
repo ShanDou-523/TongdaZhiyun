@@ -8,6 +8,7 @@
     "pages/staff/index",
     "pages/admin/index",
     "pages/privacy/index",
+    "pages/demo/index",
     "pages/order/create/index",
     "pages/order/mine/index",
     "pages/runner/apply/index",
@@ -42,5 +43,8 @@
   "style": "v2",
   "sitemapLocation": "sitemap.json",
   "__usePrivacyCheck__": true,
-  "lazyCodeLoading": "requiredComponents"
+  "lazyCodeLoading": "requiredComponents",
+  "usingComponents": {
+    "demo-banner": "/components/demo-banner/index"
+  }
 }

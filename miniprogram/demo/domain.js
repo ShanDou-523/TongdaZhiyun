@@ -1,4 +1,6 @@
-const crypto = require('crypto');
+// Generated from cloudfunctions/api by scripts/sync-demo.js. Do not edit.
+// Local demo only; production authentication remains in the cloud function.
+const crypto = require('./crypto');
 const hash = value => crypto.createHash('sha256').update(String(value)).digest('hex');
 const uid = openid => hash(openid).slice(0, 32);
 // 开发期身份切换：仅当服务端显式开启 devLogin 时，允许用 11 位手机号作为"扮演身份"替代真实
