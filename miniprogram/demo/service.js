@@ -255,12 +255,26 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
         const weight = data.weight;
         need(typeof weight === 'number' && Number.isInteger(weight) && weight >= 0 && weight <= 999, 'INVALID', '权重须为 0–999 的整数，数字越大越靠前');
         need(typeof data.enabled === 'boolean', 'INVALID', '广告状态无效');
+        const m = media(data);
+        let requestKey = '';
+        const requestHash = hash(JSON.stringify({title, subtitle, weight, enabled:data.enabled, ...m}));
+        if (!data.id && data.requestId !== undefined) {
+          const requestId = text(data.requestId, 80, '请求编号');
+          need(/^[a-zA-Z0-9_-]+$/.test(requestId), 'INVALID', '请求编号无效');
+          requestKey = 'banner_create_' + hash(fresh._id + ':' + requestId);
+          const previous = await tx.get('auditLogs', requestKey);
+          if (previous) {
+            need(previous.detail.requestHash === requestHash, 'INVALID', '上次保存可能已成功，请刷新广告列表核对后再编辑');
+            return { id: previous.target };
+          }
+        }
         const id = data.id ? text(data.id, 32, '广告编号') : crypto.randomBytes(12).toString('hex');
         const old = await tx.get('banners', id);
         need(!data.id || old, 'INVALID', '广告不存在或已被删除');
-        const m = media(data);
         await tx.put('banners', id, { title, subtitle, weight, enabled: data.enabled, mediaType: m.mediaType, mediaFileID: m.mediaFileID, createdAt: old?.createdAt || clock(), updatedAt: clock() });
-        await audit(tx, fresh, 'banner.save', id, { title, weight, enabled: data.enabled, mediaType: m.mediaType });
+        const detail = { title, weight, enabled: data.enabled, mediaType: m.mediaType };
+        if (requestKey) await tx.put('auditLogs', requestKey, {actorId:fresh._id, action:'banner.save', target:id, detail:{...detail,requestHash}, createdAt:clock()});
+        else await audit(tx, fresh, 'banner.save', id, detail);
         return { id };
       });
       return { id: saved.id };

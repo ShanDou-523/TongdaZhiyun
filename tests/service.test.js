@@ -588,3 +588,14 @@ test('delivery mode constrains acceptance and taking, not just the shared status
  const o=await f.repo.get('orders',r.id);await f.repo.put('orders',r.id,{...o,status:'delivered'});await f.call('s',shop.token,'order.accept',{id:r.id});assert.equal((await f.repo.get('orders',r.id)).status,'serving');
  const self=await create('self');await fails(f.call('r',runner.token,'order.take',{id:self.id}),'INVALID');assert.equal((await f.repo.get('orders',self.id)).runnerId,'');await f.call('s',shop.token,'order.accept',{id:self.id});
 });
+
+test('banner create retries are atomic, reject changed payload and never resurrect deleted records',async()=>{
+ const f=await fixture(),a=await f.register('admin','13800000001');const d={title:'活动',subtitle:'说明',weight:1,enabled:true,mediaType:'none',requestId:'create_1'};
+ const call=data=>f.call('admin',a.token,'admin.bannerSave',data);
+ const [one,two]=await Promise.all([call(d),call(d)]);assert.equal(one.id,two.id);assert.equal(Object.keys(f.repo.data.banners).length,1);
+ assert.equal(Object.values(f.repo.data.auditLogs).filter(x=>x.action==='banner.save').length,1);
+ await fails(call({...d,title:'更改的标题'}),'INVALID');
+ await f.call('admin',a.token,'admin.bannerDelete',{id:one.id});const retry=await call(d);assert.equal(retry.id,one.id);assert.equal(Object.keys(f.repo.data.banners).length,0);
+ const next=await call({...d,requestId:'create_2'});assert.notEqual(next.id,one.id);
+ const customer=await f.register('c','13800000002');await fails(f.call('c',customer.token,'admin.bannerSave',d),'FORBIDDEN');
+});

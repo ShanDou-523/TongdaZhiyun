@@ -2,7 +2,21 @@ const api = require('../../utils/api');
 Page({
  data: { user: null, store: null, services: [], banners: [], panel: { title: '联系你的门店', note: '服务咨询，有话直接说' }, loading: true, error: '' },
  onShow() { this.load(); },
- async load() { this.setData({ loading: true, error: '' }); try { const me = await api.guard(); if (!me) return; this.setData({ ...me, panel: this.panelFor(me.user && me.user.role) }); const s = await api.call('services.list'); const b = await api.call('banners.list'); this.setData({ services: this.decorate(s.items), banners: await this.resolveMedia(b.items) }); } catch(e) { this.setData({ error: e.message }); } finally { this.setData({ loading: false }); } },
+ async load() {
+  const generation=this.loadGeneration=(this.loadGeneration||0)+1;
+  const active=()=>generation===this.loadGeneration;
+  this.setData({loading:true,error:''});
+  try{
+   const me=await api.guard();if(!me||!active())return;
+   this.setData({...me,panel:this.panelFor(me.user&&me.user.role)});
+   const errors=[];
+   await Promise.all([
+    (async()=>{try{const r=await api.call('services.list');if(active())this.setData({services:this.decorate(r.items)});}catch(e){errors.push('服务加载失败：'+e.message);}})(),
+    (async()=>{try{const r=await api.call('banners.list');const banners=await this.resolveMedia(r.items);if(active())this.setData({banners});}catch(e){errors.push('广告加载失败：'+e.message);}})()
+   ]);
+   if(active())this.setData({error:errors.join('；')});
+  }catch(e){if(active())this.setData({error:e.message});}finally{if(active())this.setData({loading:false});}
+ },
  // 服务卡片的配色与图标由类别决定；未登记类别走 house 兜底，避免出现空白卡片。
  decorate(items) { return items.map(x => ({ ...x, tone: x.category === 'laundry' ? 'laundry' : 'house', icon: x.category === 'laundry' ? '洗' : '家' })); },
  // 底部卡片随角色换标题与说明，避免出现"标题说联系门店、按钮却是管理中心"的错位。

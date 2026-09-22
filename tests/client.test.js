@@ -212,3 +212,22 @@ test('order and runner media stay local in demo and use cloud only in cloud mode
 test('runner placeholder photo control is unavailable in release cloud mode',async()=>{
  const p=page('runner/apply',{guard:async()=>({demoMode:false,user:{}})},{getAccountInfoSync:()=>({miniProgram:{envVersion:'release'}})});await p.load();p.skipPhotos();assert.equal(p.data.devLogin,false);assert.equal(p.data.idCard,'');
 });
+
+test('banner upload freezes target and fields while edit and clear actions are blocked',async()=>{
+ let uploadDone,sent;const p=page('admin',{call:async(a,d)=>{sent=d;}},{cloud:{uploadFile:()=>new Promise(r=>{uploadDone=r;})},showToast(){}});p.load=async()=>{};
+ Object.assign(p.data,{bannerId:'a',bannerTitle:'A',bannerSubtitle:'说明A',bannerMediaType:'image',bannerMedia:'wxfile://a',bannerWeight:50,bannerEnabled:true,banners:[{_id:'b',title:'B'}]});
+ const saving=p.saveBanner();p.editBanner({currentTarget:{dataset:{id:'b'}}});p.newBanner();p.removeBannerMedia();p.bannerEnabled({detail:{value:false}});p.input({currentTarget:{dataset:{key:'bannerTitle'}},detail:{value:'B'}});
+ assert.equal(p.data.bannerId,'a');assert.equal(p.data.bannerTitle,'A');
+ uploadDone({fileID:'cloud://a'});await saving;assert.equal(sent.id,'a');assert.equal(sent.title,'A');assert.equal(sent.enabled,true);assert.equal(sent.mediaType,'image');assert.equal(p.data.bannerId,'');
+});
+test('banner create retry preserves request identity and a fresh draft gets a different identity',async()=>{
+ const requests=[];const p=page('admin',{call:async(a,d)=>{requests.push(d.requestId);if(requests.length===1)throw Error('response lost');return {id:'created'};}},{showToast(){}});p.load=async()=>{};
+ const draft={bannerTitle:'活动',bannerSubtitle:'说明',bannerWeight:20};Object.assign(p.data,draft);await p.saveBanner();await p.saveBanner();assert.ok(requests[0]);assert.equal(requests[0],requests[1]);
+ Object.assign(p.data,draft);await p.saveBanner();assert.notEqual(requests[2],requests[0]);
+});
+test('home services and banners render independently when either request fails',async()=>{
+ for(const failed of ['banners.list','services.list']){
+  const p=page('home',{guard:async()=>({user:{role:'customer'},demoMode:true}),call:async a=>{if(a===failed)throw Error('offline');return {items:[{_id:a,category:'laundry'}]};}});
+  await p.load();assert.equal(p.data.services.length,failed==='services.list'?0:1);assert.equal(p.data.banners.length,failed==='banners.list'?0:1);assert.match(p.data.error,/offline/);assert.equal(p.data.loading,false);
+ }
+});
