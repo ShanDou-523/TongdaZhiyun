@@ -1,7 +1,7 @@
 const api=require('../../utils/api');const config=require('../../config');const {roles,categories}=require('../../utils/constants');
 const tables=['users','stores','conversations','messages','notifications','services','banners','auditLogs'];
 Page({data:{tab:'users',users:[],stores:[],storeOptions:[],keyword:'',services:[],banners:[],rows:[],tables,tableIndex:0,error:'',loading:false,busy:false,page:0,more:false,edit:null,roleOptions:['客户','门店'],roleIndex:0,storeIndex:0,storeId:'',storeName:'',editingStore:false,storeEnabled:true,serviceId:'',serviceName:'',serviceDesc:'',serviceEnabled:true,editingService:false,categoryOptions:Object.values(categories),categoryKeys:Object.keys(categories),categoryIndex:0,bannerId:'',bannerTitle:'',bannerSubtitle:'',bannerWeight:50,bannerEnabled:true,editingBanner:false,bannerMediaType:'none',bannerMedia:'',versions:['开发版','体验版','正式版'],versionIndex:1,qrStore:0,qr:''},
- onShow(){this.start();},async start(){try{const me=await api.guard(['admin']);if(!me)return;this.setData({demoMode:!!me.demoMode});await this.loadStores();await this.load(false,true);}catch(e){this.setData({error:e.message});}},
+ onShow(){this.start();},async start(){try{const me=await api.guard(['admin']);if(!me)return;await this.loadStores();await this.load(false,true);}catch(e){this.setData({error:e.message});}},
  // storeOptions 只留营业中的门店：账户编辑、入口码这些地方只能选启用门店，把停用的也列出来是误导。
  async loadStores(){const r=await api.call('admin.stores');this.setData({stores:r.items,storeOptions:r.items.filter(s=>s.enabled)});},
  tab(e){if(this.data.loading||this.data.busy)return;this.setData({tab:e.currentTarget.dataset.tab,page:0,users:[],services:[],banners:[],rows:[],edit:null,error:''});this.load(false,true);},
@@ -9,7 +9,7 @@ Page({data:{tab:'users',users:[],stores:[],storeOptions:[],keyword:'',services:[
  async load(e,reset=false){if(this.data.loading)return;this.setData({loading:true,error:''});const page=reset?0:this.data.page+1;try{if(this.data.tab==='users'){const r=await api.call('staff.customers',{page,keyword:this.data.keyword});const users=r.items.map(u=>({...u,roleName:roles[u.role]}));this.setData({users:reset?users:this.data.users.concat(users),page,more:users.length===20});}else if(this.data.tab==='database'){const r=await api.call('admin.inspect',{collection:tables[this.data.tableIndex],page});const rows=r.items.map(x=>({_id:x._id,json:JSON.stringify(x,null,2)}));this.setData({rows:reset?rows:this.data.rows.concat(rows),page,more:rows.length===20});}else if(this.data.tab==='services'){const r=await api.call('admin.services');this.setData({services:r.items,more:false});}else if(this.data.tab==='banners'){const r=await api.call('admin.banners');this.setData({banners:r.items,more:false});}else{await this.loadStores();this.setData({more:false});}}catch(e){this.setData({error:e.message});}finally{this.setData({loading:false});}},
  editUser(e){const u=this.data.users.find(x=>x._id===e.currentTarget.dataset.id);this.setData({edit:{...u},roleIndex:u.role==='store'?1:0,storeIndex:Math.max(0,this.data.storeOptions.findIndex(s=>s._id===u.storeId))},()=>wx.pageScrollTo({selector:'#user-editor',duration:200}));},
  select(e){if(this.data.busy)return;this.setData({[e.currentTarget.dataset.key]:Number(e.detail.value)});},userEnabled(e){this.setData({'edit.enabled':e.detail.value});},close(){this.setData({edit:null});},
- async saveUser(){if(this.data.busy)return;const store=this.data.storeOptions[this.data.storeIndex];if(!store){this.setData({error:'请先创建门店'});return;}const r=await wx.showModal({title:'保存账户权限',content:this.data.demoMode?'修改后需重新选择该演示身份，原有会话保留在原门店。':'修改后该用户需重新验证手机号登录。原有会话保留在原门店。'});if(!r.confirm)return;this.setData({busy:true,error:''});try{await api.call('admin.userUpdate',{id:this.data.edit._id,enabled:this.data.edit.enabled,role:this.data.roleIndex===1?'store':'customer',storeId:store._id});this.setData({edit:null});await this.load(false,true);}catch(e){this.setData({error:e.message});}finally{this.setData({busy:false});}},
+ async saveUser(){if(this.data.busy)return;const store=this.data.storeOptions[this.data.storeIndex];if(!store){this.setData({error:'请先创建门店'});return;}const r=await wx.showModal({title:'保存账户权限',content:'修改后该用户需重新登录。原有会话保留在原门店。'});if(!r.confirm)return;this.setData({busy:true,error:''});try{await api.call('admin.userUpdate',{id:this.data.edit._id,enabled:this.data.edit.enabled,role:this.data.roleIndex===1?'store':'customer',storeId:store._id});this.setData({edit:null});await this.load(false,true);}catch(e){this.setData({error:e.message});}finally{this.setData({busy:false});}},
  input(e){if(this.data.busy)return;this.setData({[e.currentTarget.dataset.key]:e.detail.value});},storeEnabled(e){this.setData({storeEnabled:e.detail.value});},
  editStore(e){const s=this.data.stores.find(x=>x._id===e.currentTarget.dataset.id);this.setData({storeId:s._id,storeName:s.name,storeEnabled:s.enabled,editingStore:true});},
  newStore(){this.setData({storeId:'',storeName:'',storeEnabled:true,editingStore:false});},
@@ -25,13 +25,13 @@ Page({data:{tab:'users',users:[],stores:[],storeOptions:[],keyword:'',services:[
  resetBanner(){this.bannerRequestId=null;this.bannerGeneration=(this.bannerGeneration||0)+1;this.setData({bannerId:'',bannerTitle:'',bannerSubtitle:'',bannerWeight:50,bannerEnabled:true,editingBanner:false,bannerMediaType:'none',bannerMedia:''});},
  bannerEnabled(e){if(this.data.busy)return;this.setData({bannerEnabled:e.detail.value});},
  // 选择海报图片或短视频（专业同事做好的素材）。图片≤10MB，视频≤60MB、≤60秒。
- // 真实环境：保存时才上传云存储，避免选了又取消产生孤儿文件；演示模式直接用本地临时路径预览。
+ // 真实环境：保存时才上传云存储，避免选了又取消产生孤儿文件。
  chooseBannerMedia(){if(this.data.busy)return;if(!wx.chooseMedia){this.setData({error:'当前基础库不支持选择素材，请升级微信开发者工具后重试'});return;}const generation=this.bannerGeneration||0;wx.chooseMedia({count:1,mediaType:['image','video'],sourceType:['album'],maxDuration:60,sizeType:['compressed'],success:r=>{if(this.data.busy||generation!==(this.bannerGeneration||0))return;const f=(r.tempFiles||[])[0];if(!f){this.setData({error:'没有取到素材文件，请重试'});return;}const isImage=f.fileType==='image';if(isImage&&f.size>10*1024*1024){this.setData({error:'图片不能超过 10MB'});return;}if(!isImage&&f.duration>60){this.setData({error:'视频不能超过 60 秒'});return;}if(!isImage&&f.size>60*1024*1024){this.setData({error:'视频不能超过 60MB'});return;}this.setData({bannerMediaType:isImage?'image':'video',bannerMedia:f.tempFilePath,error:''});},fail:err=>{const msg=(err&&err.errMsg)||'未知原因';if(msg.indexOf('cancel')>-1)return;this.setData({error:'选择素材失败：'+msg});console.error('chooseMedia failed',err);}});},
  removeBannerMedia(){if(this.data.busy)return;this.setData({bannerMediaType:'none',bannerMedia:''});},
  async saveBanner(){
   if(this.data.busy)return;
   const d=this.data, payload={id:d.bannerId,title:d.bannerTitle.trim(),subtitle:d.bannerSubtitle.trim(),weight:Number(d.bannerWeight),enabled:d.bannerEnabled,mediaType:d.bannerMediaType};
-  const media=d.bannerMedia, demoMode=!!d.demoMode;
+  const media=d.bannerMedia;
   if(!payload.title||!payload.subtitle){this.setData({error:'请填写广告标题和说明'});return;}
   if(!Number.isInteger(payload.weight)||payload.weight<0||payload.weight>999){this.setData({error:'权重须为 0–999 的整数'});return;}
   if(!payload.id){if(!this.bannerRequestId)this.bannerRequestId=Date.now().toString(36)+'_'+Math.random().toString(36).slice(2);payload.requestId=this.bannerRequestId;}
@@ -39,7 +39,7 @@ Page({data:{tab:'users',users:[],stores:[],storeOptions:[],keyword:'',services:[
   try{
    payload.mediaFileID='';
    if(payload.mediaType!=='none'){
-    if(media.startsWith('cloud://')||demoMode)payload.mediaFileID=media;
+    if(media.startsWith('cloud://'))payload.mediaFileID=media;
     else{const ext=(media.match(/\.[a-z0-9]+$/i)||['.bin'])[0];const up=await wx.cloud.uploadFile({cloudPath:'banners/'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+ext,filePath:media});payload.mediaFileID=up.fileID;this.setData({bannerMedia:up.fileID});}
    }
    await api.call('admin.bannerSave',payload);

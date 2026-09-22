@@ -175,17 +175,9 @@ test('profile nickname input remains wired to the generic field handler',()=>{
   const key=input.match(/data-key="([^"]+)"/)[1];const p=page('profile');
   p.input({currentTarget:{dataset:{key}},detail:{value:'新昵称'}});assert.equal(p.data.nickname,'新昵称');
 });
-test('demo banner upload and preview never invoke cloud media APIs',async()=>{
-  let payload;const wx={cloud:{uploadFile(){throw Error('cloud forbidden');},getTempFileURL(){throw Error('cloud forbidden');}},showToast(){}};
-  const p=page('admin',{call:async(a,d)=>{payload=d;}},wx);p.load=async()=>{};
-  Object.assign(p.data,{demoMode:true,bannerTitle:'活动',bannerSubtitle:'欢迎',bannerWeight:50,bannerMediaType:'image',bannerMedia:'wxfile://tmp/a.jpg'});
-  await p.saveBanner();assert.equal(payload.mediaFileID,'wxfile://tmp/a.jpg');assert.equal(p.data.error,'');
-  const home=page('home',{},wx);home.data.demoMode=true;
-  const result=await home.resolveMedia([{mediaFileID:'wxfile://tmp/a.jpg'},{mediaFileID:'cloud://demo/test'}]);assert.equal(result[0].mediaUrl,'wxfile://tmp/a.jpg');
-});
 test('banner retry reuses uploaded file after failed save',async()=>{
   let uploads=0,calls=0;const p=page('admin',{call:async()=>{if(++calls===1)throw Error('offline');}},{cloud:{uploadFile:async()=>{uploads++;return {fileID:'cloud://env/banners/a.jpg'};}},showToast(){}});p.load=async()=>{};
-  Object.assign(p.data,{demoMode:false,bannerTitle:'活动',bannerSubtitle:'欢迎',bannerWeight:50,bannerMediaType:'image',bannerMedia:'wxfile://tmp/a.jpg'});
+  Object.assign(p.data,{bannerTitle:'活动',bannerSubtitle:'欢迎',bannerWeight:50,bannerMediaType:'image',bannerMedia:'wxfile://tmp/a.jpg'});
   await p.saveBanner();assert.equal(p.data.bannerMedia,'cloud://env/banners/a.jpg');await p.saveBanner();assert.equal(uploads,1);assert.equal(calls,2);
 });
 
@@ -200,13 +192,13 @@ test('registration and profile form submit and restore dorm room',async()=>{
  profile.input({currentTarget:{dataset:{key:'dormRoom'}},detail:{value:'A-601'}});await profile.save();assert.equal(data.dormRoom,'A-601');
 });
 
-test('order and runner media stay local in demo and use cloud only in cloud mode',async()=>{
- for(const demoMode of [true,false])for(const name of ['order/create','runner/apply']){
-  let uploads=0,selection;const p=page(name,{guard:async()=>({demoMode,user:{phone:'13800000001',park:'一园区'}}),call:async a=>a==='services.list'?{items:[]}:{runnerFee:300}},
+test('order and runner media always upload to cloud',async()=>{
+ for(const name of ['order/create','runner/apply']){
+  let uploads=0,selection;const p=page(name,{guard:async()=>({user:{phone:'13800000001',park:'一园区'}}),call:async a=>a==='services.list'?{items:[]}:{runnerFee:300}},
   {getAccountInfoSync:()=>({miniProgram:{envVersion:'develop'}}),chooseMedia:opts=>{selection=opts;},cloud:{uploadFile:async()=>{uploads++;return {fileID:'cloud://test/photo'};}}});
   await p.load();if(name==='order/create')await p.addPhoto();else await p.pick({currentTarget:{dataset:{key:'idCard'}}});
   await selection.success({tempFiles:[{tempFilePath:'wxfile://tmp/photo.jpg'}]});
-  assert.equal(uploads,demoMode?0:1);assert.equal(name==='order/create'?p.data.media[0]:p.data.idCard,demoMode?'wxfile://tmp/photo.jpg':'cloud://test/photo');
+  assert.equal(uploads,1);assert.equal(name==='order/create'?p.data.media[0]:p.data.idCard,'cloud://test/photo');
  }
 });
 test('runner placeholder photo control is unavailable in release cloud mode',async()=>{
@@ -227,7 +219,16 @@ test('banner create retry preserves request identity and a fresh draft gets a di
 });
 test('home services and banners render independently when either request fails',async()=>{
  for(const failed of ['banners.list','services.list']){
-  const p=page('home',{guard:async()=>({user:{role:'customer'},demoMode:true}),call:async a=>{if(a===failed)throw Error('offline');return {items:[{_id:a,category:'laundry'}]};}});
+  const p=page('home',{guard:async()=>({user:{role:'customer'}}),call:async a=>{if(a===failed)throw Error('offline');return {items:[{_id:a,category:'laundry'}]};}});
   await p.load();assert.equal(p.data.services.length,failed==='services.list'?0:1);assert.equal(p.data.banners.length,failed==='banners.list'?0:1);assert.match(p.data.error,/offline/);assert.equal(p.data.loading,false);
  }
+});
+
+test('auth entry loads cloud login directly with no demo redirect',()=>{
+ const p=page('auth',{}, {getAccountInfoSync:()=>({miniProgram:{envVersion:'develop'}})}, {globalData:{},captureEntry(){}});let loaded=0;p.load=()=>{loaded++;};p.onLoad();assert.equal(loaded,1);assert.equal(p.data.devLogin,true);
+});
+test('API ignores legacy demo storage and preserves cloud sessions on ordinary calls',async()=>{
+ const values=new Map([['session','cloud-token'],['yuanlin.demo.session.v2',{token:'old-demo'}],['devActor','13000000001']]);let request;const app={globalData:{cloudReady:true}};const module={exports:{}};
+ vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/utils/api.js'),'utf8'),{module,require:()=>({devLogin:true}),getApp:()=>app,wx:{getStorageSync:k=>values.get(k),removeStorageSync:k=>values.delete(k),cloud:{callFunction:async r=>{request=r;return {result:{ok:true,data:{user:{_id:'cloud-user'}}}};}}}});
+ const r=await module.exports.call('me');assert.equal(r.user._id,'cloud-user');assert.equal(request.data.token,'cloud-token');assert.equal(request.data.devActor,'13000000001');module.exports.clear();assert.equal(values.has('session'),false);assert.equal(values.has('yuanlin.demo.session.v2'),true);
 });

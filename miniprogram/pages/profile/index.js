@@ -6,6 +6,6 @@ Page({data:{user:null,stores:[],storeIndex:0,storeMissing:false,parks,genders,ni
  // 客户自己换服务门店：门店停用/搬迁时不该被卡死。只换归属，历史会话留在原门店。
  // 取消选择时不更新 storeIndex，picker 是受控组件，显示会回到当前门店。
  async pickStore(e){if(this.data.busy)return;const target=this.data.stores[Number(e.detail.value)];if(!target||target._id===((this.data.user||{}).storeId))return;const r=await wx.showModal({title:'更换服务门店',content:`切换到「${target.name}」后，新对话会发给这家店；你与原门店的历史记录仍保留在原来那家。`});if(!r.confirm)return;this.setData({busy:true,error:''});try{await api.call('store.switch',{storeId:target._id});await this.load();wx.showToast({title:'已更换门店'});}catch(err){this.setData({error:err.message});}finally{this.setData({busy:false});}},
- async logout(){const r=await wx.showModal({title:'退出登录',content:this.data.demoMode?'退出后可重新选择演示身份，演示记录会保留。':'下次登录需重新验证手机号。'});if(!r.confirm)return;try{await api.call('logout');api.clear();wx.reLaunch({url:'/pages/auth/index'});}catch(e){this.setData({error:e.message});}},
+ async logout(){const r=await wx.showModal({title:'退出登录',content:'退出后需重新登录。'});if(!r.confirm)return;try{await api.call('logout');api.clear();wx.reLaunch({url:'/pages/auth/index'});}catch(e){this.setData({error:e.message});}},
  staff(){wx.navigateTo({url:'/pages/staff/index'});},admin(){wx.navigateTo({url:'/pages/admin/index'});},orders(){wx.navigateTo({url:'/pages/order/mine/index'});},runner(){const st=((this.data.user||{}).runner||{}).status;wx.navigateTo({url:st==='approved'?'/pages/runner/hall/index':'/pages/runner/apply/index'});},privacy(){wx.navigateTo({url:'/pages/privacy/index'});}
 });

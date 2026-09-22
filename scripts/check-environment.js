@@ -49,11 +49,8 @@ function inspect(root, target) {
     for (const field of ['privacyOperator', 'privacyContact']) {
       if (typeof config[field] !== 'string' || !config[field].trim()) report.errors.push('正式配置缺少 ' + field);
     }
-    if (fs.existsSync(path.join(root, 'miniprogram/demo')) || fs.existsSync(path.join(root, 'miniprogram/mock'))) {
-      report.warnings.push('源码含本地演示实现；正式构建还需验证测试入口和打包边界');
-    }
-  } else if (config.demoEnabled === true || config.mock === true) {
-    report.warnings.push('本地演示已开启，演示通过不等于个人云环境联调通过');
+  } else if (config.devLogin === true) {
+    report.warnings.push('开发登录已开启，数据写入个人云环境；公司上线前必须关闭');
   }
   report.pending.push('开发者工具运行时实际 AppID、云环境归属与关联、数据库权限和索引尚未核验');
   report.pending.push('云端已部署版本及 DEV_LOGIN 等真实环境变量尚未核验；前端检查不能代替服务端检查');

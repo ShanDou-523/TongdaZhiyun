@@ -1,1 +1,0 @@
-<view wx:if="{{visible}}" class="demo-banner"><text>本地演示 · 数据仅存本机</text><button bindtap="switchAccount">切换身份</button></view>

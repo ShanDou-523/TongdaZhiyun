@@ -5,7 +5,6 @@
   "scripts": {
     "test": "node --test tests/*.test.js",
     "check": "node scripts/check.js",
-    "demo:sync": "node scripts/sync-demo.js",
     "env:check:dev": "node scripts/check-environment.js development",
     "env:check:prod": "node scripts/check-environment.js production"
   }

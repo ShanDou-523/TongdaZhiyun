@@ -1,10 +1,10 @@
 const api = require('../../../utils/api');
 const config = require('../../../config');
 Page({
- data: { runner: null, realName: '', schoolId: '', idCard: '', studentCard: '', demoMode: false, devLogin: false, loading: true, busy: false, error: '' },
+ data: { runner: null, realName: '', schoolId: '', idCard: '', studentCard: '', devLogin: false, loading: true, busy: false, error: '' },
  onShow() { this.load(); },
  async load() {
-  try { const me = await api.guard(['customer']); if (!me) return; this.setData({ runner: me.user.runner || null, demoMode:!!me.demoMode, devLogin:this.canSkipPhotos(!!me.demoMode) }); }
+  try { const me = await api.guard(['customer']); if (!me) return; this.setData({ runner: me.user.runner || null, devLogin:this.canSkipPhotos() }); }
   catch (e) { this.setData({ error: e.message }); }
   finally { this.setData({ loading: false }); }
  },
@@ -21,7 +21,7 @@ Page({
     this.setData({ busy: true, error: '' });
     try {
      let value = file;
-     if (!this.data.demoMode) {
+     {
       const ext = (file.match(/\.[a-z0-9]+$/i) || ['.jpg'])[0];
       const up = await wx.cloud.uploadFile({ cloudPath: `runner/${key}-${Date.now()}${ext}`, filePath: file });
       value = up.fileID;
@@ -48,9 +48,8 @@ Page({
  },
  hall() { wx.navigateTo({ url: '/pages/runner/hall/index' }); },
  // 开发期旁路：隐私声明没配好之前选不了照片，用占位符把流程跑通；上线前关掉 devLogin 即失效。
- canSkipPhotos(demoMode) {
-  if (demoMode) return true;
+ canSkipPhotos() {
   try { return config.devLogin === true && ['develop','trial'].includes(wx.getAccountInfoSync().miniProgram.envVersion); } catch (_) { return false; }
  },
- skipPhotos() { if (this.data.busy || this.data.loading || !this.canSkipPhotos(this.data.demoMode)) return; this.setData({ idCard: 'dev:idCard', studentCard: 'dev:studentCard', error: '' }); }
+ skipPhotos() { if (this.data.busy || this.data.loading || !this.canSkipPhotos()) return; this.setData({ idCard: 'dev:idCard', studentCard: 'dev:studentCard', error: '' }); }
 });

@@ -2,9 +2,8 @@ const api = require('../../utils/api');
 const config = require('../../config');
 const { parks, genders } = require('../../utils/constants');
 Page({
-  data: { mode: 'register', parks, genders, parkIndex: 0, genderIndex: 0, nickname: '', stores: [], storeIndex: 0, consent: false, busy: false, error: '', loading: false, demoAvailable: false, devLogin: false, devPhone: '13000000001', parkDetail: '', dormRoom: '' },
-  onLoad(options = {}) { getApp().captureEntry({ query: options }); const available = api.demoAvailable(); this.setData({demoAvailable:available, devLogin:this.developmentLoginAvailable()}); if(available && options.real !== '1'){wx.redirectTo({url:'/pages/demo/index'});return;} this.load(); },
-  demo() { wx.reLaunch({url:'/pages/demo/index'}); },
+  data: { mode: 'register', parks, genders, parkIndex: 0, genderIndex: 0, nickname: '', stores: [], storeIndex: 0, consent: false, busy: false, error: '', loading: false, devLogin: false, devPhone: '13000000001', parkDetail: '', dormRoom: '' },
+  onLoad(options = {}) { getApp().captureEntry({query:options}); this.setData({devLogin:this.developmentLoginAvailable()}); this.load(); },
   async load() {
     this.setData({ loading: true, error: '' });
     try {
