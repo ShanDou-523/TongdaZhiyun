@@ -11,7 +11,8 @@
     "pages/order/create/index",
     "pages/order/mine/index",
     "pages/runner/apply/index",
-    "pages/runner/hall/index"
+    "pages/runner/hall/index",
+    "pages/services/index"
   ],
   "window": {
     "navigationBarTitleText": "园邻",

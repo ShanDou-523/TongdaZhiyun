@@ -1,6 +1,9 @@
 const api = require('../../utils/api');
 Page({
- data: { user: null, store: null, services: [], banners: [], panel: { title: '联系你的门店', note: '服务咨询，有话直接说' }, loading: true, error: '' },
+ data: { user: null, store: null, services: [], banners: [], defaultBanners: [
+  { _id: 'runner-recruitment', mediaType: 'image', mediaUrl: '/assets/banners/runner-recruitment.png', posterOnly: true },
+  { _id: 'registration-offer', mediaType: 'image', mediaUrl: '/assets/banners/registration-offer.png', posterOnly: true }
+ ], panel: { title: '联系你的门店', note: '服务咨询，有话直接说' }, loading: true, error: '' },
  onShow() { this.load(); },
  async load() {
   const generation=this.loadGeneration=(this.loadGeneration||0)+1;
@@ -32,5 +35,5 @@ Page({
  async contact() { if (this.opening) return; this.opening = true; try { const r = await api.call('chat.open'); wx.navigateTo({ url: '/pages/chat/index?id=' + r.roomId }); } catch(e) { this.setData({error:e.message}); } finally { this.opening = false; } },
  staff() { wx.navigateTo({ url: '/pages/staff/index' }); }, admin() { wx.navigateTo({ url: '/pages/admin/index' }); },
  // 点服务卡片 = 去下这一单。门店/管理员没有下单入口，直接引导到各自工作台。
- consult(e) { if (!this.data.user) return; if (this.data.user.role !== 'customer') { wx.showToast({ title: '请在门店工作台或管理中心处理', icon: 'none' }); return; } const id = e.currentTarget.dataset.id; wx.navigateTo({ url: '/pages/order/create/index' + (id ? '?serviceId=' + id : '') }); }
+ consult(e) { wx.navigateTo({ url: '/pages/services/index?category=' + e.currentTarget.dataset.category }); }
 });

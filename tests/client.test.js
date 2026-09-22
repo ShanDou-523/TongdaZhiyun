@@ -232,3 +232,19 @@ test('API ignores legacy demo storage and preserves cloud sessions on ordinary c
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/utils/api.js'),'utf8'),{module,require:()=>({devLogin:true}),getApp:()=>app,wx:{getStorageSync:k=>values.get(k),removeStorageSync:k=>values.delete(k),cloud:{callFunction:async r=>{request=r;return {result:{ok:true,data:{user:{_id:'cloud-user'}}}};}}}});
  const r=await module.exports.call('me');assert.equal(r.user._id,'cloud-user');assert.equal(request.data.token,'cloud-token');assert.equal(request.data.devActor,'13000000001');module.exports.clear();assert.equal(values.has('session'),false);assert.equal(values.has('yuanlin.demo.session.v2'),true);
 });
+
+
+test('catalog order page restores dorm address and submits house appointment without delivery pickup',async()=>{
+ const item={_id:'house',name:'2小时深度保洁',category:'housekeeping',unit:'间',variants:[{id:'0',name:'整间套餐',price:11900}]};let sent;
+ const api={guard:async()=>({user:{role:'customer',phone:'13800000001',park:'一园区',dormRoom:'3栋502'}}),call:async(a,d)=>{if(a==='services.list')return {items:[item]};if(a==='order.config')return {runnerFee:0};sent=d;return {};}};
+ const p=page('order/create',api,{showToast(){}},{globalData:{}},{setTimeout(){},clearTimeout(){}});p.preset='house';await p.load();
+ assert.equal(p.data.parkDetail,'3栋502');assert.equal(p.data.delivery,'onsite');assert.equal(p.data.amountText,'119.00');
+ await p.submit();assert.match(p.data.error,/预约/);assert.equal(sent,undefined);
+ p.setData({appointmentDate:'2027-01-16',appointmentTime:'12:00'});await p.submit();assert.equal(sent.appointment,'2027-01-16 12:00');assert.equal(sent.quantity,1);assert.equal(sent.variantId,'0');assert.equal(sent.delivery,'onsite');assert.equal(sent.serviceAmount,undefined);
+});
+
+test('laundry specification and quantity update displayed amount and reject fractional pieces',async()=>{
+ const p=page('order/create');p.setData({services:[{unit:'件'}],variants:[{id:'0',price:2000},{id:'1',price:4000}],quantity:'2',loading:false});
+ p.select({currentTarget:{dataset:{key:'variantIndex'}},detail:{value:'1'}});assert.equal(p.data.amountText,'80.00');
+ p.input({currentTarget:{dataset:{key:'quantity'}},detail:{value:'1.5'}});await p.submit();assert.match(p.data.error,/有效数量/);
+});

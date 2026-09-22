@@ -1,21 +1,30 @@
+const testCatalog = require('./modules/test-catalog.json');
+const { quote } = require('./modules/pricing');
 const crypto = require('crypto');
 const { hash, uid, CATEGORIES, PARKS, BusinessError, requireThat: need, text, profile, publicUser, publicOrder, canOrderTransition, allowedConversation } = require('./domain');
 const INSPECT = ['users','stores','conversations','messages','notifications','services','banners','orders','auditLogs'];
 // 广告素材类型：none 纯文案；image 海报图；video 短视频。素材文件存云存储，库里只存 fileID。
 const MEDIA_TYPES = ['none','image','video'];
 // All repository access runs on the trusted server; no client database permissions are needed.
-function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', clock = Date.now, devLogin = false, msgCheck = null, storageDelete = null }) {
+function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', clock = Date.now, devLogin = false, devUserAliases = {}, msgCheck = null, storageDelete = null }) {
+  // Explicit legacy development identities only; never infer account ownership from phone input.
+  async function identityId(ctx, source = repo) {
+    const legacyId = devLogin && /^1\d{10}$/.test(ctx.openid || '') && Object.prototype.hasOwnProperty.call(devUserAliases, ctx.openid) ? devUserAliases[ctx.openid] : '';
+    if (!legacyId) return uid(ctx.openid);
+    const legacy = await source.get('users', legacyId);
+    need(legacy && legacy.phone === ctx.openid, 'AUTH', '开发账号兼容配置与原账号不一致，请联系管理员核对');
+    return legacyId;
+  }
   async function actor(ctx, token, source = repo) {
     need(ctx.openid, 'AUTH', '请重新登录');
-    const user = await source.get('users', uid(ctx.openid));
+    const user = await source.get('users', await identityId(ctx, source));
     need(user && user.enabled && typeof token === 'string' && token.length === 64 && user.sessionHash === hash(token) && user.sessionExpiresAt > clock(), 'AUTH', '登录已过期或账户权限已变更，请重新验证手机号');
     if (user.role === 'store') need((await source.get('stores', user.storeId))?.enabled, 'FORBIDDEN', '门店已停用，请联系管理员');
     return user;
   }
   const admin = user => need(user.role === 'admin', 'FORBIDDEN', '仅管理员可操作');
-  // 跑腿费是全局配置（settings/delivery），管理员可改；单位「分」，避免浮点误差。默认 3 元。
-  const DEFAULT_RUNNER_FEE = 300;
-  async function runnerFee(source) { const s = await source.get('settings', 'delivery'); return Number.isInteger(s?.runnerFee) && s.runnerFee >= 0 ? s.runnerFee : DEFAULT_RUNNER_FEE; }
+  // 当前阶段统一免跑腿费，历史配置不影响新订单。
+  async function runnerFee() { return 0; }
   const staff = user => need(['store','admin'].includes(user.role), 'FORBIDDEN', '仅门店或管理员可操作');
   const page = value => { const n = value === undefined ? 0 : Number(value); need(Number.isInteger(n) && n >= 0 && n <= 10000, 'INVALID', '分页参数错误'); return n; };
   // 内容安全检测（微信平台对 UGC 的强制要求，提审必查）。
@@ -41,9 +50,10 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
     else try { info = await phoneExchange(code); } catch (_) { throw new BusinessError('PHONE', '手机号验证失败，请重新点击授权；若持续失败，请检查平台手机号能力配置'); }
     const phone = info?.purePhoneNumber;
     need(info?.countryCode === '86' && /^1\d{10}$/.test(phone || ''), 'PHONE', '当前仅支持中国大陆手机号');
-    const id = uid(ctx.openid), token = crypto.randomBytes(32).toString('hex'), now = clock();
+    const token = crypto.randomBytes(32).toString('hex'), now = clock();
     if (data.mode === 'register') await checkContent(profile(data).nickname, 1, ctx);
     return repo.transaction(async tx => {
+      const id = await identityId(ctx, tx);
       let user = await tx.get('users', id);
       const claimId = hash(`86:${phone}`), claim = await tx.get('phoneClaims', claimId);
       need(!claim || claim.userId === id, 'PHONE_BOUND', '该手机号已绑定其他微信账户，请联系门店处理');
@@ -92,7 +102,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       await audit(tx, fresh, 'store.switch', fresh._id, { from: fresh.storeId, to: store._id });
       return { user: publicUser(saved) };
     });
-    if (action === 'services.list') return { items: await repo.list('services', { enabled: true }, { order: 'createdAt', limit: 30 }) };
+    if (action === 'services.list') return { items: await repo.list('services', { enabled: true }, { order: 'createdAt', limit: 100 }) };
     // 首页广告位：只下发启用的，按权重从高到低，最多 5 条，后台改完即实时生效。
     if (action === 'banners.list') return { items: await repo.list('banners', { enabled: true }, { order: 'weight', direction: 'desc', limit: 5 }) };
     if (action === 'chat.open') return repo.transaction(async tx => {
@@ -207,6 +217,19 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       await tx.remove('stores', id);
       await audit(tx, fresh, 'store.delete', id, { name: store.name }); return {};
     });
+    if (action === 'admin.importTestCatalog') {
+      admin(user); need(devLogin, 'FORBIDDEN', '测试价目表仅允许在开发云环境导入');
+      const old = await repo.list('services', {}, { order: 'createdAt', limit: 100 });
+      return repo.transaction(async tx => {
+      const fresh = await actor(ctx, event.token, tx); admin(fresh);
+      need(devLogin, 'FORBIDDEN', '测试价目表仅允许在开发云环境导入');
+      need(old.length < 100, 'INVALID', '现有服务过多，请先整理后再导入');
+      for (const item of old) { if(testCatalog.some(s=>s._id===item._id))continue; const current=await tx.get('services',item._id); if(current)await tx.put('services',item._id,{...current,enabled:false,updatedAt:clock()}); }
+      for (let i=0;i<testCatalog.length;i++) { const item=testCatalog[i]; await tx.put('services',item._id,{...item,createdAt:clock()-i,updatedAt:clock()}); }
+      await audit(tx,fresh,'service.importTestCatalog','catalog',{count:testCatalog.length});
+      return { count: testCatalog.length };
+      });
+    }
     if (action === 'admin.services') { admin(user); return { items: await repo.list('services', {}, { order: 'createdAt', limit: 100 }) }; }
     if (action === 'admin.serviceSave') return repo.transaction(async tx => {
       const fresh = await actor(ctx, event.token, tx); admin(fresh);
@@ -218,7 +241,8 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       const id = data.id ? text(data.id, 32, '服务编号') : crypto.randomBytes(12).toString('hex');
       const old = await tx.get('services', id);
       need(!data.id || old, 'INVALID', '服务不存在或已被删除');
-      await tx.put('services', id, { name, category: data.category, description, enabled: data.enabled, createdAt: old?.createdAt || clock(), updatedAt: clock() });
+      need(!old?.variants || old.category === data.category, 'INVALID', '有价目规格的服务不能更改所属类别');
+      await tx.put('services', id, { ...old, name, category: data.category, description, enabled: data.enabled, createdAt: old?.createdAt || clock(), updatedAt: clock() });
       await audit(tx, fresh, 'service.save', id, { name, category: data.category, enabled: data.enabled });
       return { id };
     });
@@ -324,16 +348,17 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       need(store?.enabled, 'INVALID', '你所属的门店已停用，请先在「我的」里更换服务门店');
       const service = await tx.get('services', text(data.serviceId, 32, '服务'));
       need(service?.enabled, 'INVALID', '该服务已下架，请重新选择');
+      const selection = quote(service, data, clock());
       const items = text(data.items, 200, '物品说明');
       const note = typeof data.note === 'string' ? data.note.trim().slice(0, 200) : '';
       const park = text(data.park, 20, '园区'); need(PARKS.includes(park), 'INVALID', '请选择园区');
       const parkDetail = text(data.parkDetail, 40, '详细地址');
       const contact = text(data.contact, 20, '联系电话'); need(/^1\d{10}$/.test(contact), 'INVALID', '联系电话格式不正确');
-      need(['self','runner'].includes(data.delivery), 'INVALID', '请选择配送方式');
+
       // 照片只收云存储 fileID，最多 3 张；其它形状一律丢弃，避免把外链塞进订单。
       const media = (Array.isArray(data.media) ? data.media : []).filter(x => typeof x === 'string' && x.startsWith('cloud://')).slice(0, 3);
       const now = clock(), id = crypto.randomBytes(12).toString('hex');
-      const order = { _id: id, customerId: fresh._id, customerName: fresh.nickname, storeId: store._id, serviceId: service._id, serviceName: service.name, items, note, park, parkDetail, contact, media, delivery: data.delivery, fee: data.delivery === 'runner' ? await runnerFee(tx) : 0, runnerId: '', runnerName: '', status: 'submitted', createdAt: now, updatedAt: now };
+      const order = { ...selection, _id: id, customerId: fresh._id, customerName: fresh.nickname, storeId: store._id, serviceId: service._id, serviceName: service.name, items, note, park, parkDetail, contact, media, delivery: data.delivery, fee: data.delivery === 'runner' ? await runnerFee(tx) : 0, runnerId: '', runnerName: '', status: 'submitted', createdAt: now, updatedAt: now };
       await tx.put('orders', id, order);
       await tx.put('notifications', `ord_${id}`, { storeId: store._id, customerId: fresh._id, title: '新订单', nickname: fresh.nickname, park, createdAt: now });
       await audit(tx, fresh, 'order.create', id, { storeId: store._id, delivery: order.delivery });
@@ -357,7 +382,7 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       const order = await tx.get('orders', text(data.id, 40, '订单'));
       need(order, 'INVALID', '订单不存在或已被删除');
       need(fresh.role === 'admin' || order.storeId === fresh.storeId, 'FORBIDDEN', '这不是本门店的订单');
-      need(order.delivery === 'self' || (order.delivery === 'runner' && order.status === 'delivered'), 'INVALID', '这单要等飞毛腿送到门店后才能接单');
+      need(['self','onsite'].includes(order.delivery) || (order.delivery === 'runner' && order.status === 'delivered'), 'INVALID', '这单要等飞毛腿送到门店后才能接单');
       need(canOrderTransition(order.status, 'serving'), 'INVALID', order.delivery === 'runner' && order.status !== 'delivered' ? '这单要等飞毛腿送到门店后才能接单' : '当前状态不能接单');
       const saved = { ...order, status: 'serving', updatedAt: clock() };
       await tx.put('orders', order._id, saved);
@@ -456,11 +481,11 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       if (storageDelete) for (const file of photos.filter(Boolean)) { try { await storageDelete(file); } catch (_) { console.warn('runner photo cleanup failed'); } }
       return { user: reviewed };
     }
-    // 跑腿费配置（单位：分）。默认 3 元，管理员随时可改。
+    // 暂停收费期间仅允许设置0；旧订单金额保留。
     if (action === 'admin.runnerFee') return repo.transaction(async tx => {
       const fresh = await actor(ctx, event.token, tx); admin(fresh);
       const fee = Number(data.fee);
-      need(Number.isInteger(fee) && fee >= 0 && fee <= 100000, 'INVALID', '跑腿费需为 0 到 1000 元之间的整数（单位分）');
+      need(fee === 0, 'INVALID', '当前阶段暂不收取跑腿费，只能设置为0');
       await tx.put('settings', 'delivery', { runnerFee: fee, updatedAt: clock() });
       await audit(tx, fresh, 'settings.runnerFee', 'delivery', { fee });
       return { runnerFee: fee };

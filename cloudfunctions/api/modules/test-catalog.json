@@ -1,0 +1,484 @@
+[
+  {
+    "_id": "test_clean2",
+    "name": "2小时深度保洁（不擦窗）",
+    "category": "housekeeping",
+    "group": "家政套餐",
+    "unit": "间",
+    "description": "按整间收费，请预约上门时间",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "整间套餐",
+        "price": 11900
+      }
+    ]
+  },
+  {
+    "_id": "test_clean3",
+    "name": "3小时深度保洁（不擦窗）",
+    "category": "housekeeping",
+    "group": "家政套餐",
+    "unit": "间",
+    "description": "按整间收费，请预约上门时间",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "整间套餐",
+        "price": 14900
+      }
+    ]
+  },
+  {
+    "_id": "test_full2",
+    "name": "2小时大扫除（含双面擦窗）",
+    "category": "housekeeping",
+    "group": "家政套餐",
+    "unit": "间",
+    "description": "按整间收费，请预约上门时间",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "整间套餐",
+        "price": 14900
+      }
+    ]
+  },
+  {
+    "_id": "test_full3",
+    "name": "3小时大扫除（含双面擦窗）",
+    "category": "housekeeping",
+    "group": "家政套餐",
+    "unit": "间",
+    "description": "按整间收费，请预约上门时间",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "整间套餐",
+        "price": 17900
+      }
+    ]
+  },
+  {
+    "_id": "test_shirt",
+    "name": "衬衫",
+    "category": "laundry",
+    "group": "衣物",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 2000
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 4000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 6000
+      }
+    ]
+  },
+  {
+    "_id": "test_sweater",
+    "name": "毛衣",
+    "category": "laundry",
+    "group": "衣物",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 3000
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 6000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 9000
+      }
+    ]
+  },
+  {
+    "_id": "test_dress",
+    "name": "普通连衣裙",
+    "category": "laundry",
+    "group": "衣物",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 4000
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 8000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 12000
+      }
+    ]
+  },
+  {
+    "_id": "test_down",
+    "name": "短款羽绒服",
+    "category": "laundry",
+    "group": "衣物",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 4000
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 8000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 12000
+      }
+    ]
+  },
+  {
+    "_id": "test_coat",
+    "name": "长款大衣",
+    "category": "laundry",
+    "group": "衣物",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 5500
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 11000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 16500
+      }
+    ]
+  },
+  {
+    "_id": "test_mesh",
+    "name": "网面运动鞋",
+    "category": "laundry",
+    "group": "鞋类",
+    "unit": "双",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 2500
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 5500
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 8500
+      }
+    ]
+  },
+  {
+    "_id": "test_leather_shoe",
+    "name": "皮面运动鞋",
+    "category": "laundry",
+    "group": "鞋类",
+    "unit": "双",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 3200
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 7000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 10000
+      }
+    ]
+  },
+  {
+    "_id": "test_shoe",
+    "name": "短款皮鞋",
+    "category": "laundry",
+    "group": "鞋类",
+    "unit": "双",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 6000
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 12000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 18000
+      }
+    ]
+  },
+  {
+    "_id": "test_boot",
+    "name": "低筒雪地靴",
+    "category": "laundry",
+    "group": "鞋类",
+    "unit": "双",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "普洗",
+        "price": 5000
+      },
+      {
+        "id": "1",
+        "name": "普通精洗",
+        "price": 10000
+      },
+      {
+        "id": "2",
+        "name": "高级精洗",
+        "price": 15000
+      }
+    ]
+  },
+  {
+    "_id": "test_curtain",
+    "name": "普通窗帘",
+    "category": "laundry",
+    "group": "床品家纺",
+    "unit": "㎡",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "标准",
+        "price": 1000
+      }
+    ]
+  },
+  {
+    "_id": "test_blanket",
+    "name": "毛毯",
+    "category": "laundry",
+    "group": "床品家纺",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "标准",
+        "price": 12000
+      }
+    ]
+  },
+  {
+    "_id": "test_quilt",
+    "name": "羽绒被",
+    "category": "laundry",
+    "group": "床品家纺",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "标准",
+        "price": 12000
+      }
+    ]
+  },
+  {
+    "_id": "test_set3",
+    "name": "普通三件套（枕套×1）",
+    "category": "laundry",
+    "group": "床品家纺",
+    "unit": "套",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "标准",
+        "price": 2900
+      }
+    ]
+  },
+  {
+    "_id": "test_set4",
+    "name": "普通四件套（枕套×2）",
+    "category": "laundry",
+    "group": "床品家纺",
+    "unit": "套",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "标准",
+        "price": 3200
+      }
+    ]
+  },
+  {
+    "_id": "test_bag",
+    "name": "奢品包包",
+    "category": "laundry",
+    "group": "包包皮革",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "小",
+        "price": 39900
+      },
+      {
+        "id": "1",
+        "name": "中",
+        "price": 49900
+      },
+      {
+        "id": "2",
+        "name": "大",
+        "price": 59900
+      }
+    ]
+  },
+  {
+    "_id": "test_leather",
+    "name": "黑色皮衣",
+    "category": "laundry",
+    "group": "包包皮革",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "短",
+        "price": 26000
+      },
+      {
+        "id": "1",
+        "name": "中",
+        "price": 28000
+      },
+      {
+        "id": "2",
+        "name": "长",
+        "price": 32000
+      }
+    ]
+  },
+  {
+    "_id": "test_fur",
+    "name": "皮草大衣",
+    "category": "laundry",
+    "group": "包包皮革",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "短",
+        "price": 35000
+      },
+      {
+        "id": "1",
+        "name": "中",
+        "price": 40000
+      },
+      {
+        "id": "2",
+        "name": "长",
+        "price": 45000
+      }
+    ]
+  },
+  {
+    "_id": "test_shearling",
+    "name": "皮毛一体",
+    "category": "laundry",
+    "group": "包包皮革",
+    "unit": "件",
+    "description": "按所选规格计价，附加处理需门店确认",
+    "enabled": true,
+    "variants": [
+      {
+        "id": "0",
+        "name": "短",
+        "price": 45000
+      },
+      {
+        "id": "1",
+        "name": "中",
+        "price": 60000
+      },
+      {
+        "id": "2",
+        "name": "长",
+        "price": 80000
+      }
+    ]
+  }
+]

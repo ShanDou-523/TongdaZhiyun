@@ -50,6 +50,7 @@ function publicOrder(order, opts = {}) {
   const view = {
     _id: order._id, customerId: order.customerId, customerName: order.customerName,
     storeId: order.storeId, serviceId: order.serviceId, serviceName: order.serviceName,
+    category: order.category || 'laundry', variantName: order.variantName || '', quantity: order.quantity, unit: order.unit, unitPrice: order.unitPrice, serviceAmount: order.serviceAmount, appointment: order.appointment || '',
     items: order.items, note: order.note, park: order.park, parkDetail: order.parkDetail,
     media: order.media || [], delivery: order.delivery, fee: order.fee,
     runnerId: order.runnerId || '', runnerName: order.runnerName || '',

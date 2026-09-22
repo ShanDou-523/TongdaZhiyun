@@ -33,6 +33,7 @@ const service = createService({
   // 开发期登录开关：仅在云函数环境变量 DEV_LOGIN=1 时开启。
   // 联调环境（个人主体）设它打通注册登录；公司生产环境绝不设置此变量。
   devLogin: process.env.DEV_LOGIN === '1',
+  devUserAliases: require('./modules/dev-user-aliases.json'),
   async phoneExchange(code) { return (await cloud.openapi.phonenumber.getPhoneNumber({ code })).phoneInfo; },
   // 跑腿资质审核通过后要删掉证件照原件（留存最小化），这里注入云存储删除能力。
   async storageDelete(fileID) { await cloud.deleteFile({ fileList: [fileID] }); },

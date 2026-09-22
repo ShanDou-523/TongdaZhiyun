@@ -1,8 +1,8 @@
 const api = require('../../../utils/api');
 const { parks } = require('../../../utils/constants');
 Page({
- data: { services: [], serviceIndex: 0, items: '', note: '', parks, parkIndex: 0, parkDetail: '', contact: '', media: [], delivery: 'self', runnerFee: 0, loading: true, busy: false, error: '' },
- onLoad(options) { this.preset = (options && options.serviceId) || ''; this.load(); },
+ data: { services: [], serviceIndex: 0, variantIndex: 0, quantity: '1', appointmentDate: '', appointmentTime: '', house: false, amountText: '', variants: [], items: '', note: '', parks, parkIndex: 0, parkDetail: '', contact: '', media: [], delivery: 'self', runnerFee: 0, loading: true, busy: false, error: '' },
+ onLoad(options) { this.preset = (options && options.serviceId) || ''; if(!this.preset){wx.redirectTo({url:'/pages/services/index?category=laundry'});return;} this.load(); },
  async load() {
   this.setData({ loading: true, error: '' });
   try {
@@ -10,18 +10,21 @@ Page({
    const list = await api.call('services.list');
    const conf = await api.call('order.config');
    const i = list.items.findIndex(x => x._id === this.preset);
+   if(i < 0) throw new Error('该服务已下架，请返回重新选择');
    this.setData({
     services: list.items, serviceIndex: i < 0 ? 0 : i,
     contact: me.user.phone,
     parkIndex: Math.max(0, parks.indexOf(me.user.park)),
-    parkDetail: me.user.parkDetail || '',
-    runnerFee: conf.runnerFee
+    parkDetail: [me.user.parkDetail,me.user.dormRoom].filter(Boolean).join(' '),
+    runnerFee: conf.runnerFee, house: list.items[i].category === 'housekeeping', delivery: list.items[i].category === 'housekeeping' ? 'onsite' : 'self', variants: (list.items[i].variants || []).map(v=>({...v,label:v.name+' · '+v.price/100+'元'}))
    });
+   this.reprice();
   } catch (e) { this.setData({ error: e.message }); }
   finally { this.setData({ loading: false }); }
  },
- select(e) { this.setData({ [e.currentTarget.dataset.key]: Number(e.detail.value) }); },
- input(e) { this.setData({ [e.currentTarget.dataset.key]: e.detail.value }); },
+ select(e) { this.setData({ [e.currentTarget.dataset.key]: Number(e.detail.value) }); this.reprice(); },
+ reprice(){const service=this.data.services[this.data.serviceIndex],v=this.data.variants[this.data.variantIndex];this.setData({amountText:v ? (Math.round(v.price*Number(this.data.quantity || 0))/100).toFixed(2) : '', unit:service && service.unit || '件'});},
+ input(e) { this.setData({ [e.currentTarget.dataset.key]: e.detail.value }); this.reprice(); },
  delivery(e) { this.setData({ delivery: e.currentTarget.dataset.value }); },
  // 照片是可选项：工具或隐私声明没配好时不该挡住下单，失败原因要如实显示而不是静默。
  async addPhoto() {
@@ -48,15 +51,16 @@ Page({
  },
  removePhoto(e) { const i = Number(e.currentTarget.dataset.index); this.setData({ media: this.data.media.filter((_, n) => n !== i) }); },
  async submit() {
-  if (this.data.busy) return;
+  if (this.data.busy || this.data.loading) return;
   const s = this.data, service = s.services[s.serviceIndex];
   if (!service) { this.setData({ error: '请选择服务' }); return; }
-  if (!s.items.trim()) { this.setData({ error: '请填写要处理的物品' }); return; }
+  if(s.house && (!s.appointmentDate || !s.appointmentTime)){this.setData({error:'请选择预约日期和时间'});return;}
+  if(s.variants.length && (!(Number(s.quantity)>0) || Number(s.quantity)>99 || (s.unit !== '㎡' && !Number.isInteger(Number(s.quantity))) || (s.unit === '㎡' && !/^\d+(\.\d{1,2})?$/.test(s.quantity)))){this.setData({error:'请填写有效数量，面积最多两位小数，上限99'});return;}
   if (!s.parkDetail.trim()) { this.setData({ error: '请填写详细取件地址（楼栋、房间号）' }); return; }
   if (!/^1\d{10}$/.test(s.contact.trim())) { this.setData({ error: '请填写 11 位联系电话' }); return; }
   this.setData({ busy: true, error: '' });
   try {
-   await api.call('order.create', { serviceId: service._id, items: s.items.trim(), note: s.note.trim(), park: parks[s.parkIndex], parkDetail: s.parkDetail.trim(), contact: s.contact.trim(), media: s.media, delivery: s.delivery });
+   await api.call('order.create', { serviceId: service._id, variantId: s.variants[s.variantIndex] && s.variants[s.variantIndex].id, quantity: s.house ? 1 : Number(s.quantity), appointment: s.house ? s.appointmentDate+' '+s.appointmentTime : '', items: s.items.trim() || service.name, note: s.note.trim(), park: parks[s.parkIndex], parkDetail: s.parkDetail.trim(), contact: s.contact.trim(), media: s.media, delivery: s.delivery });
    wx.showToast({ title: '已下单' });
    setTimeout(() => wx.redirectTo({ url: '/pages/order/mine/index' }), 600);
   } catch (e) { this.setData({ error: e.message }); }

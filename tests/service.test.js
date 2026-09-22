@@ -478,7 +478,7 @@ test('order: runner flow from application to delivery; pickup phone stays hidden
   assert.deepEqual(deletedFiles.slice().sort(),['cloud://id-1','cloud://stu-1']);
 
   const created=await call('customer',customer.token,'order.create',{serviceId,items:'一件羽绒服',park:'二园区',parkDetail:'5号楼101',contact:'13800000002',delivery:'runner'});
-  assert.equal(created.order.fee,300,'默认跑腿费 3 元');
+  assert.equal(created.order.fee,0,'当前暂免跑腿费');
 
   // 大厅能看到单，但看不到取件电话
   const pool=await call('runner',runner.token,'order.pool',{});
@@ -511,7 +511,7 @@ test('order: runner flow from application to delivery; pickup phone stays hidden
   assert.equal((await repo.get('orders',created.id)).status,'serving');
 });
 
-test('order: runner fee is admin-configurable and cancellation is role-scoped',async()=>{
+test('order: runner fee remains zero and cancellation is role-scoped',async()=>{
   const {repo,call,register,provision}=await fixture();
   const admin=await register('admin','13800000001');
   const serviceId=await withService(call,admin);
@@ -521,9 +521,10 @@ test('order: runner fee is admin-configurable and cancellation is role-scoped',a
   await fails(call('admin',admin.token,'admin.runnerFee',{fee:'abc'}),'INVALID');
   await fails(call('customer',customer.token,'admin.runnerFee',{fee:500}),'FORBIDDEN');
 
-  await call('admin',admin.token,'admin.runnerFee',{fee:500});
+  await fails(call('admin',admin.token,'admin.runnerFee',{fee:500}),'INVALID');
+  await repo.put('settings','delivery',{runnerFee:500});
   const created=await call('customer',customer.token,'order.create',{serviceId,items:'一双球鞋',park:'一园区',parkDetail:'1号楼101',contact:'13800000002',delivery:'runner'});
-  assert.equal(created.order.fee,500,'配置生效');
+  assert.equal(created.order.fee,0,'历史收费配置不影响新订单');
 
   // 无关的人取消不了
   const outsider=await register('outsider','13800000006');
@@ -598,4 +599,66 @@ test('banner create retries are atomic, reject changed payload and never resurre
  await f.call('admin',a.token,'admin.bannerDelete',{id:one.id});const retry=await call(d);assert.equal(retry.id,one.id);assert.equal(Object.keys(f.repo.data.banners).length,0);
  const next=await call({...d,requestId:'create_2'});assert.notEqual(next.id,one.id);
  const customer=await f.register('c','13800000002');await fails(f.call('c',customer.token,'admin.bannerSave',d),'FORBIDDEN');
+});
+
+
+test('catalog imports 22 services in development only and preserves order price snapshots',async()=>{
+ const f=await fixture(),admin=await f.register('admin','13800000001'),customer=await f.register('c','13800000002');
+ await fails(f.call('admin',admin.token,'admin.importTestCatalog'),'FORBIDDEN');
+ const dev=createService({repo:f.repo,clock:()=>1800000000000,devLogin:true});
+ const call=(openid,token,action,data={})=>dev({token,action,data},{openid});
+ await fails(call('c',customer.token,'admin.importTestCatalog'),'FORBIDDEN');
+ await call('admin',admin.token,'admin.importTestCatalog');
+ const list=(await call('c',customer.token,'services.list')).items;
+ assert.equal(list.length,22); assert.equal(list.filter(s=>s.category==='housekeeping').length,4);
+ await call('admin',admin.token,'admin.importTestCatalog');assert.equal((await call('c',customer.token,'services.list')).items.length,22);
+ const base={serviceId:'test_shirt',variantId:'1',quantity:2,items:'衬衫',park:'一园区',parkDetail:'3栋502',contact:'13800000002',delivery:'runner',serviceAmount:1,fee:999};
+ const made=await call('c',customer.token,'order.create',base);
+ assert.equal(made.order.serviceAmount,8000);assert.equal(made.order.fee,0);assert.equal(made.order.variantName,'普通精洗');
+ for(const patch of [{quantity:-1},{quantity:1.2},{quantity:100},{variantId:'fake'}])await fails(call('c',customer.token,'order.create',{...base,...patch}),'INVALID');
+ const curtain=await call('c',customer.token,'order.create',{...base,serviceId:'test_curtain',variantId:'0',quantity:2.35});assert.equal(curtain.order.serviceAmount,2350);
+ await fails(call('c',customer.token,'order.create',{...base,serviceId:'test_curtain',variantId:'0',quantity:2.345}),'INVALID');
+ await call('admin',admin.token,'admin.serviceSave',{id:'test_shirt',name:'衬衫改名',category:'laundry',description:'说明',enabled:true});
+ assert.equal((await f.repo.get('services','test_shirt')).variants.length,3);
+ assert.equal((await call('c',customer.token,'order.mine')).items.find(o=>o._id===made.id).serviceAmount,8000);
+ const house={...base,serviceId:'test_clean2',variantId:'0',quantity:1,delivery:'onsite',appointment:'2027-01-16 12:00'};
+ // Fixture clock is 2027-01-15 16:00 China time.
+ const order=await call('c',customer.token,'order.create',house);assert.equal(order.order.serviceAmount,11900);assert.equal(order.order.appointment,house.appointment);
+ for(const patch of [{appointment:''},{appointment:'2020-01-01 10:00'},{appointment:'2027-02-30 10:00'},{delivery:'runner'},{quantity:2}])await fails(call('c',customer.token,'order.create',{...house,...patch}),'INVALID');
+ await call('admin',admin.token,'order.accept',{id:order.id});await call('admin',admin.token,'order.finish',{id:order.id});assert.equal((await f.repo.get('orders',order.id)).status,'done');
+});
+
+
+test('explicit development alias preserves legacy store identity and never applies in production',async()=>{
+ const f=await fixture(),phone='13000000002',legacyId='eece0454e7ba93252d036cc646bb9c05';
+ await f.repo.put('users',legacyId,{phone,nickname:'大坝',role:'store',storeId:'main',dormRoom:'309',enabled:true,createdAt:123});
+ await f.repo.put('phoneClaims',hash('86:'+phone),{userId:legacyId});
+ const aliases=require('../cloudfunctions/api/modules/dev-user-aliases.json');
+ const dev=createService({repo:f.repo,devLogin:true,devUserAliases:aliases});
+ const event={action:'auth.phone',data:{mode:'login',consent:true,code:'dev:'+phone}};
+ const result=await dev(event,{openid:phone});assert.equal(result.user._id,legacyId);assert.equal(result.user.role,'store');assert.equal(result.user.dormRoom,'309');
+ assert.equal((await dev({action:'me',token:result.token},{openid:phone})).user._id,legacyId);
+ await fails(dev({action:'me',token:result.token},{openid:'13000000003'}),'AUTH');
+ assert.equal(await f.repo.get('users',uid(phone)),null);assert.equal((await f.repo.get('phoneClaims',hash('86:'+phone))).userId,legacyId);
+ const prod=createService({repo:f.repo,devLogin:false,devUserAliases:aliases,phoneExchange:async()=>({purePhoneNumber:phone,countryCode:'86'})});
+ await fails(prod({...event,data:{...event.data,code:'verified'}},{openid:phone}),'PHONE_BOUND');
+ const old=await f.repo.get('users',legacyId);await f.repo.put('users',legacyId,{...old,enabled:false});await fails(dev(event,{openid:phone}),'FORBIDDEN');
+ await f.repo.put('users',legacyId,{...old,phone:'13000000003'});await fails(dev(event,{openid:phone}),'AUTH');
+});
+
+
+test('legacy development admin can import catalog and renewed login revokes previous session',async()=>{
+ const f=await fixture(),phone='13000000001',id='d130c2636d378f97f25c1848ba9485d7';
+ await f.repo.put('users',id,{phone,role:'admin',storeId:'main',nickname:'原管理员',enabled:true,createdAt:123});
+ await f.repo.put('phoneClaims',hash('86:'+phone),{userId:id});
+ const aliases=require('../cloudfunctions/api/modules/dev-user-aliases.json');
+ const dev=createService({repo:f.repo,devLogin:true,devUserAliases:aliases});
+ const login={action:'auth.phone',data:{mode:'login',consent:true,code:'dev:'+phone}};
+ const first=await dev(login,{openid:phone});const second=await dev(login,{openid:phone});
+ assert.equal(second.user._id,id);assert.equal(second.user.role,'admin');
+ await fails(dev({action:'me',token:first.token},{openid:phone}),'AUTH');
+ assert.equal((await dev({action:'admin.importTestCatalog',token:second.token},{openid:phone})).count,22);
+ assert.equal(await f.repo.get('users',uid(phone)),null);
+ const prod=createService({repo:f.repo,devUserAliases:aliases});
+ await fails(prod({action:'admin.services',token:second.token},{openid:phone}),'AUTH');
 });
