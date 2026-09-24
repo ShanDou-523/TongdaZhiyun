@@ -48,7 +48,9 @@
 
 ## 3. 部署云函数
 
-在微信开发者工具中右键 `cloudfunctions/api`，选择“上传并部署：云端安装依赖”，确认目标云环境。服务端依赖锁定在该目录的 `package-lock.json`；本地安装可运行 `npm ci --ignore-scripts`。前端没有 npm 依赖，不需要“构建 npm”。
+小程序端使用 Babel 运行时。首次打开或更新依赖后，在项目根目录运行 `npm ci --prefix miniprogram`，再在微信开发者工具执行“工具 → 构建 npm”并重新编译。
+
+在微信开发者工具中右键 `cloudfunctions/api`，选择“上传并部署：云端安装依赖”，确认目标云环境。服务端依赖锁定在该目录的 `package-lock.json`；本地安装可运行 `npm ci --ignore-scripts`。
 
 云函数建议采用当前云平台支持的 Node.js 18 或更新兼容运行时、256MB 内存、20秒超时。`config.json` 声明手机号、小程序码和文字内容检测云调用权限，必须一并部署。若调用失败，检查云环境是否关联正确小程序及该 API 能力是否已开通。
 

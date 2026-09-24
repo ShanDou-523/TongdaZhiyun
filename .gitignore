@@ -3,3 +3,5 @@ project.private.config.json
 .env
 .env.*
 !*.example
+miniprogram/miniprogram_npm/
+artifacts/*.zip
