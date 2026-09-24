@@ -1,7 +1,25 @@
 const api=require('../../utils/api');const config=require('../../config');const {roles,categories}=require('../../utils/constants');
 const tables=['users','stores','conversations','messages','notifications','services','banners','auditLogs'];
-Page({data:{canImportTestCatalog:config.devLogin,tab:'users',users:[],stores:[],storeOptions:[],keyword:'',services:[],banners:[],applicants:[],runnerFeeYuan:0,rows:[],tables,tableIndex:0,error:'',loading:false,busy:false,page:0,more:false,edit:null,roleOptions:['客户','门店'],roleIndex:0,storeIndex:0,storeId:'',storeName:'',editingStore:false,storeEnabled:true,serviceId:'',serviceName:'',serviceDesc:'',serviceEnabled:true,editingService:false,categoryOptions:Object.values(categories),categoryKeys:Object.keys(categories),categoryIndex:0,bannerId:'',bannerTitle:'',bannerSubtitle:'',bannerWeight:50,bannerEnabled:true,editingBanner:false,bannerMediaType:'none',bannerMedia:'',versions:['开发版','体验版','正式版'],versionIndex:1,qrStore:0,qr:''},
- async importCatalog(){if(this.data.busy)return;const r=await wx.showModal({title:'启用22项测试服务',content:'将上架测试价目表并停用当前其他服务，保留历史订单。再次导入会恢复测试价格。'});if(!r.confirm)return;this.setData({busy:true,error:''});try{await api.call('admin.importTestCatalog');await this.load(false,true);wx.showToast({title:'22项服务已启用'});}catch(e){this.setData({error:e.message});}finally{this.setData({busy:false});}},
+Page({data:{canImportCatalog:config.devLogin,importProgress:'',tab:'users',users:[],stores:[],storeOptions:[],keyword:'',services:[],banners:[],applicants:[],runnerFeeYuan:0,rows:[],tables,tableIndex:0,error:'',loading:false,busy:false,page:0,more:false,edit:null,roleOptions:['客户','门店'],roleIndex:0,storeIndex:0,storeId:'',storeName:'',editingStore:false,storeEnabled:true,serviceId:'',serviceName:'',serviceDesc:'',serviceEnabled:true,editingService:false,categoryOptions:Object.values(categories),categoryKeys:Object.keys(categories),categoryIndex:0,bannerId:'',bannerTitle:'',bannerSubtitle:'',bannerWeight:50,bannerEnabled:true,editingBanner:false,bannerMediaType:'none',bannerMedia:'',versions:['开发版','体验版','正式版'],versionIndex:1,qrStore:0,qr:''},
+ async importCatalog(){
+  if(this.data.busy)return;
+  const choice=await wx.showModal({title:'补齐服务价目表',content:'导入全部已提供的家政和洗护服务；同编号服务会更新为价目表价格，其他服务和历史订单保留。'});
+  if(!choice.confirm)return;
+  this.setData({busy:true,error:'',importProgress:'准备导入…'});
+  let offset=0;
+  try{
+   while(true){
+    const result=await api.call('admin.importCatalog',{offset});
+    if(!Number.isInteger(result.total)||!Number.isInteger(result.nextOffset)||result.nextOffset<=offset||result.nextOffset>result.total)throw new Error('导入进度异常，请重试');
+    offset=result.nextOffset;
+    this.setData({importProgress:offset+'/'+result.total});
+    if(offset===result.total)break;
+   }
+   await this.load(false,true);
+   wx.showToast({title:'服务已补齐'});
+  }catch(e){this.setData({error:'已处理 '+offset+' 项；'+e.message+'。可再次点击补齐继续重试。'});}
+  finally{this.setData({busy:false,importProgress:''});}
+ },
  async loadRunner(){const r=await api.call('staff.customers',{page:0});const c=await api.call('order.config');this.setData({applicants:r.items.filter(u=>u.runner&&u.runner.status==='pending').map(u=>({...u,appliedText:api.time(u.runner.appliedAt)})),runnerFeeYuan:c.runnerFee/100,more:false});},
  async review(e){if(this.data.busy)return;const id=e.currentTarget.dataset.id,result=e.currentTarget.dataset.result;let reason='';if(result==='rejected'){const r=await wx.showModal({title:'驳回申请',editable:true,placeholderText:'填写驳回理由，申请人能看到'});if(!r.confirm)return;reason=(r.content||'').trim();if(!reason){this.setData({error:'驳回需要写明理由'});return;}}else{const r=await wx.showModal({title:'通过申请',content:'通过后该用户就能接单；证件照片会立即从云存储删除，只保留已核验标记。'});if(!r.confirm)return;}this.setData({busy:true,error:''});try{await api.call('admin.runnerReview',{id,result,reason});await this.loadRunner();wx.showToast({title:result==='approved'?'已通过':'已驳回'});}catch(err){this.setData({error:err.message});}finally{this.setData({busy:false});}},
  onShow(){this.start();},async start(){try{const me=await api.guard(['admin']);if(!me)return;await this.loadStores();await this.load(false,true);}catch(e){this.setData({error:e.message});}},

@@ -10,6 +10,11 @@ function quote(service, data, now) {
   need(!house || quantity === 1, 'INVALID', '家政每单预约一间');
   selection = { variantId: variant.id, variantName: variant.name, quantity, unit: service.unit, unitPrice: variant.price, serviceAmount: Math.round(variant.price * quantity) };
  }
+ if (!service.variants || !service.variants.length) {
+  const quantity = data.quantity === undefined ? 1 : Number(data.quantity);
+  need(Number.isInteger(quantity) && quantity >= 1 && quantity <= 99, 'INVALID', '数量须为1至99的整数');
+  selection = { quantity, unit: service.unit || '件' };
+ }
  let appointment = '';
  if (house) {
   appointment = data.appointment;

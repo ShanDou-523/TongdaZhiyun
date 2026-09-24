@@ -36,6 +36,16 @@ async function fixture() {
   const provision = async (openid, role, storeId = 'main') => { const u = await repo.get('users', uid(openid)); await repo.put('users', u._id, {...u,role,storeId}); };
   return { repo, service, call, register, provision, deletedFiles, tick(ms = 1000) { now += ms; } };
 }
+async function importCatalog(call, openid, token) {
+ let offset = 0, total = 0;
+ do {
+  const result = await call(openid, token, 'admin.importCatalog', { offset });
+  total = result.total;
+  assert.ok(result.nextOffset > offset && result.nextOffset <= total);
+  offset = result.nextOffset;
+ } while (offset < total);
+ return total;
+}
 const fails = (promise, code) => assert.rejects(promise, e => e.code === code);
 test('admin manages the service catalog; customers cannot write and changes are audited',async()=>{
   const f=await fixture(),admin=await f.register('admin','13800000001'),c=await f.register('c','13800000002');
@@ -602,22 +612,35 @@ test('banner create retries are atomic, reject changed payload and never resurre
 });
 
 
-test('catalog imports 22 services in development only and preserves order price snapshots',async()=>{
+test('full catalog imports idempotently and preserves order price snapshots',async()=>{
  const f=await fixture(),admin=await f.register('admin','13800000001'),customer=await f.register('c','13800000002');
- await fails(f.call('admin',admin.token,'admin.importTestCatalog'),'FORBIDDEN');
+ await fails(f.call('admin',admin.token,'admin.importCatalog',{offset:0}),'FORBIDDEN');
  const dev=createService({repo:f.repo,clock:()=>1800000000000,devLogin:true});
  const call=(openid,token,action,data={})=>dev({token,action,data},{openid});
- await fails(call('c',customer.token,'admin.importTestCatalog'),'FORBIDDEN');
- await call('admin',admin.token,'admin.importTestCatalog');
+ await fails(call('c',customer.token,'admin.importCatalog',{offset:0}),'FORBIDDEN');
+ assert.equal(await importCatalog(call,'admin',admin.token),66);
  const list=(await call('c',customer.token,'services.list')).items;
- assert.equal(list.length,22); assert.equal(list.filter(s=>s.category==='housekeeping').length,4);
- await call('admin',admin.token,'admin.importTestCatalog');assert.equal((await call('c',customer.token,'services.list')).items.length,22);
+ assert.equal(list.length,66); assert.equal(list.filter(s=>s.category==='housekeeping').length,4);
+ assert.equal(new Set(list.map(s=>s._id)).size,66);
+ assert.equal(new Set(list.map(s=>s.name)).size,66);
+ for(const service of list)assert.match(service._id,/^[a-z0-9_]+$/);
+ for(const service of list)for(const variant of service.variants||[])assert.ok(Number.isInteger(variant.price)&&variant.price>0);
+ for(const name of ['西裤','羊毛短裙','长款风衣','高筒雪地靴','双层窗帘','羊毛地毯','真丝四件套（枕套×2）','单熨烫'])assert.ok(list.some(s=>s.name===name),name);
+ assert.deepEqual(list.find(s=>s.name==='高筒雪地靴').variants.map(v=>v.price),[7000,14000,21000]);
+ assert.deepEqual(list.find(s=>s.name==='真丝四件套（枕套×2）').variants.map(v=>v.price),[8900]);
+ await fails(call('admin',admin.token,'admin.importCatalog',{offset:-1}),'INVALID');
+ const custom=await call('admin',admin.token,'admin.serviceSave',{name:'自定义护理',category:'laundry',description:'保留门店服务',enabled:true});
+ assert.equal(await importCatalog(call,'admin',admin.token),66);assert.equal((await call('c',customer.token,'services.list')).items.length,67);
+ assert.equal((await f.repo.get('services',custom.id)).enabled,true);
  const base={serviceId:'test_shirt',variantId:'1',quantity:2,items:'衬衫',park:'一园区',parkDetail:'3栋502',contact:'13800000002',delivery:'runner',serviceAmount:1,fee:999};
  const made=await call('c',customer.token,'order.create',base);
  assert.equal(made.order.serviceAmount,8000);assert.equal(made.order.fee,0);assert.equal(made.order.variantName,'普通精洗');
  for(const patch of [{quantity:-1},{quantity:1.2},{quantity:100},{variantId:'fake'}])await fails(call('c',customer.token,'order.create',{...base,...patch}),'INVALID');
  const curtain=await call('c',customer.token,'order.create',{...base,serviceId:'test_curtain',variantId:'0',quantity:2.35});assert.equal(curtain.order.serviceAmount,2350);
  await fails(call('c',customer.token,'order.create',{...base,serviceId:'test_curtain',variantId:'0',quantity:2.345}),'INVALID');
+ const carpet=await call('c',customer.token,'order.create',{...base,serviceId:'catalog_wool_carpet',variantId:'0',quantity:1.25});assert.equal(carpet.order.serviceAmount,15000);
+ const ironing=await call('c',customer.token,'order.create',{...base,serviceId:'catalog_ironing',variantId:undefined,quantity:2});assert.equal(ironing.order.serviceAmount,undefined);assert.equal(ironing.order.quantity,2);
+ await fails(call('c',customer.token,'order.create',{...base,serviceId:'catalog_ironing',variantId:undefined,quantity:1.5}),'INVALID');
  await call('admin',admin.token,'admin.serviceSave',{id:'test_shirt',name:'衬衫改名',category:'laundry',description:'说明',enabled:true});
  assert.equal((await f.repo.get('services','test_shirt')).variants.length,3);
  assert.equal((await call('c',customer.token,'order.mine')).items.find(o=>o._id===made.id).serviceAmount,8000);
@@ -657,7 +680,7 @@ test('legacy development admin can import catalog and renewed login revokes prev
  const first=await dev(login,{openid:phone});const second=await dev(login,{openid:phone});
  assert.equal(second.user._id,id);assert.equal(second.user.role,'admin');
  await fails(dev({action:'me',token:first.token},{openid:phone}),'AUTH');
- assert.equal((await dev({action:'admin.importTestCatalog',token:second.token},{openid:phone})).count,22);
+ let offset=0,total=0;do{const r=await dev({action:'admin.importCatalog',data:{offset},token:second.token},{openid:phone});offset=r.nextOffset;total=r.total;}while(offset<total);assert.equal(total,66);
  assert.equal(await f.repo.get('users',uid(phone)),null);
  const prod=createService({repo:f.repo,devUserAliases:aliases});
  await fails(prod({action:'admin.services',token:second.token},{openid:phone}),'AUTH');

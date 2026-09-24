@@ -55,8 +55,8 @@ Page({
   const s = this.data, service = s.services[s.serviceIndex];
   if (!service) { this.setData({ error: '请选择服务' }); return; }
   if(s.house && (!s.appointmentDate || !s.appointmentTime)){this.setData({error:'请选择预约日期和时间'});return;}
-  if(s.variants.length && (!(Number(s.quantity)>0) || Number(s.quantity)>99 || (s.unit !== '㎡' && !Number.isInteger(Number(s.quantity))) || (s.unit === '㎡' && !/^\d+(\.\d{1,2})?$/.test(s.quantity)))){this.setData({error:'请填写有效数量，面积最多两位小数，上限99'});return;}
-  if (!s.parkDetail.trim()) { this.setData({ error: '请填写详细取件地址（楼栋、房间号）' }); return; }
+  if(!s.house && (!(Number(s.quantity)>0) || Number(s.quantity)>99 || (s.unit !== '㎡' && !Number.isInteger(Number(s.quantity))) || (s.unit === '㎡' && !/^\d+(\.\d{1,2})?$/.test(s.quantity)))){this.setData({error:'请填写有效数量，面积最多两位小数，上限99'});return;}
+  if (!s.parkDetail.trim()) { this.setData({ error: s.house ? '请填写上门服务地址（楼栋、房间号）' : '请填写详细取件地址（楼栋、房间号）' }); return; }
   if (!/^1\d{10}$/.test(s.contact.trim())) { this.setData({ error: '请填写 11 位联系电话' }); return; }
   this.setData({ busy: true, error: '' });
   try {

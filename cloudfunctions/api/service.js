@@ -1,4 +1,4 @@
-const testCatalog = require('./modules/test-catalog.json');
+const serviceCatalog = require('./modules/service-catalog');
 const { quote } = require('./modules/pricing');
 const crypto = require('crypto');
 const { hash, uid, CATEGORIES, PARKS, BusinessError, requireThat: need, text, profile, publicUser, publicOrder, canOrderTransition, allowedConversation } = require('./domain');
@@ -217,17 +217,25 @@ function createService({ repo, phoneExchange, qrCode, bootstrapOpenid = '', cloc
       await tx.remove('stores', id);
       await audit(tx, fresh, 'store.delete', id, { name: store.name }); return {};
     });
-    if (action === 'admin.importTestCatalog') {
-      admin(user); need(devLogin, 'FORBIDDEN', '测试价目表仅允许在开发云环境导入');
-      const old = await repo.list('services', {}, { order: 'createdAt', limit: 100 });
+    if (action === 'admin.importCatalog') {
+      admin(user); need(devLogin, 'FORBIDDEN', '价目表导入仅允许在开发云环境使用');
+      const offset = data.offset === undefined ? 0 : Number(data.offset);
+      need(Number.isInteger(offset) && offset >= 0 && offset < serviceCatalog.length, 'INVALID', '导入进度无效');
+      // Short batches fit the development cloud function's timeout; stable IDs make retries safe.
+      const batch = serviceCatalog.slice(offset, offset + 5);
       return repo.transaction(async tx => {
-      const fresh = await actor(ctx, event.token, tx); admin(fresh);
-      need(devLogin, 'FORBIDDEN', '测试价目表仅允许在开发云环境导入');
-      need(old.length < 100, 'INVALID', '现有服务过多，请先整理后再导入');
-      for (const item of old) { if(testCatalog.some(s=>s._id===item._id))continue; const current=await tx.get('services',item._id); if(current)await tx.put('services',item._id,{...current,enabled:false,updatedAt:clock()}); }
-      for (let i=0;i<testCatalog.length;i++) { const item=testCatalog[i]; await tx.put('services',item._id,{...item,createdAt:clock()-i,updatedAt:clock()}); }
-      await audit(tx,fresh,'service.importTestCatalog','catalog',{count:testCatalog.length});
-      return { count: testCatalog.length };
+        const fresh = await actor(ctx, event.token, tx); admin(fresh);
+        const existing = [];
+        for (const item of batch) existing.push(await tx.get('services', item._id));
+        for (let index = 0; index < batch.length; index++) {
+          const item = batch[index], old = existing[index];
+          await tx.put('services', item._id, {
+            ...old, ...item, createdAt: old?.createdAt || clock() - offset - index,
+            updatedAt: clock()
+          });
+        }
+        await audit(tx, fresh, 'service.importCatalog', 'catalog', { offset, count: batch.length });
+        return { total: serviceCatalog.length, nextOffset: offset + batch.length };
       });
     }
     if (action === 'admin.services') { admin(user); return { items: await repo.list('services', {}, { order: 'createdAt', limit: 100 }) }; }

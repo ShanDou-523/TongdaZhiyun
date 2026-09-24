@@ -248,3 +248,13 @@ test('laundry specification and quantity update displayed amount and reject frac
  p.select({currentTarget:{dataset:{key:'variantIndex'}},detail:{value:'1'}});assert.equal(p.data.amountText,'80.00');
  p.input({currentTarget:{dataset:{key:'quantity'}},detail:{value:'1.5'}});await p.submit();assert.match(p.data.error,/有效数量/);
 });
+
+
+test('administrator imports the full catalog in bounded batches',async()=>{
+ const offsets=[];let toasted=false;
+ const p=page('admin',{call:async(action,data)=>{assert.equal(action,'admin.importCatalog');offsets.push(data.offset);return {total:66,nextOffset:Math.min(data.offset+5,66)};}},{showModal:async()=>({confirm:true}),showToast:()=>{toasted=true;}});
+ p.load=async()=>{};
+ await p.importCatalog();
+ assert.deepEqual(offsets,[0,5,10,15,20,25,30,35,40,45,50,55,60,65]);
+ assert.equal(toasted,true);assert.equal(p.data.busy,false);assert.equal(p.data.error,'');
+});
